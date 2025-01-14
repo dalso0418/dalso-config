@@ -123,7 +123,7 @@ elif [ "$IMAGE_CHOICE" -eq 2 ]; then
     IMG_PATH="/var/lib/vz/template/iso/rr.img"
     download_and_extract_image $IMG_URL $IMG_ZIP_PATH $IMG_PATH
 elif [ "$IMAGE_CHOICE" -eq 3 ]; then
-    IMG_URL="https://github.com/PeterSuh-Q3/tinycore-redpill/releases/download/v1.1.0.0/tinycore-redpill.v1.1.0.1.xtcrp.img.gz"
+    IMG_URL="https://github.com/PeterSuh-Q3/tinycore-redpill/releases/download/v1.1.0.1/tinycore-redpill.v1.1.0.1.xtcrp.img.gz"
     IMG_PATH="/var/lib/vz/template/iso/xtcrp.img"
     wget $IMG_URL -O /var/lib/vz/template/iso/xtcrp.img.gz
     gunzip -f /var/lib/vz/template/iso/xtcrp.img.gz
