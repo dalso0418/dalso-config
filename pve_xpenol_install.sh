@@ -108,21 +108,27 @@ read -p "사용할 네트워크 브릿지 이름을 입력하세요 (ex. vmbr0) 
 echo "사용할 이미지 파일을 선택하세요:"
 echo "1. m-shell (m-shell.img)"
 echo "2. RR (rr.img.zip)"
-read -p "선택 (1 또는 2): " IMAGE_CHOICE
+echo "3. xTCRP (xtcrp.img)"
+read -p "선택 (1 - 3): " IMAGE_CHOICE
 
 # 이미지 파일 경로 설정
 if [ "$IMAGE_CHOICE" -eq 1 ]; then
-    IMG_URL="https://github.com/PeterSuh-Q3/tinycore-redpill/releases/download/v1.0.4.0/tinycore-redpill.v1.0.4.0.m-shell.img.gz"
+    IMG_URL="https://github.com/PeterSuh-Q3/tinycore-redpill/releases/download/v1.1.0.1/tinycore-redpill.v1.1.0.1.m-shell.img.gz"
     IMG_PATH="/var/lib/vz/template/iso/m-shell.img"
     wget $IMG_URL -O /var/lib/vz/template/iso/m-shell.img.gz
     gunzip -f /var/lib/vz/template/iso/m-shell.img.gz
 elif [ "$IMAGE_CHOICE" -eq 2 ]; then
-    IMG_URL="https://github.com/RROrg/rr/releases/download/24.8.0/rr-24.8.0.img.zip"
-    IMG_ZIP_PATH="/var/lib/vz/template/iso/rr-24.8.0.img.zip"
+    IMG_URL="https://github.com/RROrg/rr/releases/download/25.1.0/rr-25.1.0.img.zip"
+    IMG_ZIP_PATH="/var/lib/vz/template/iso/rr-25.1.0.img.zip"
     IMG_PATH="/var/lib/vz/template/iso/rr.img"
     download_and_extract_image $IMG_URL $IMG_ZIP_PATH $IMG_PATH
+elif [ "$IMAGE_CHOICE" -eq 3 ]; then
+    IMG_URL="https://github.com/PeterSuh-Q3/tinycore-redpill/releases/download/v1.1.0.0/tinycore-redpill.v1.1.0.1.xtcrp.img.gz"
+    IMG_PATH="/var/lib/vz/template/iso/xtcrp.img"
+    wget $IMG_URL -O /var/lib/vz/template/iso/xtcrp.img.gz
+    gunzip -f /var/lib/vz/template/iso/xtcrp.img.gz
 else
-    echo "잘못된 선택입니다. 1 또는 2를 입력하세요."
+    echo "잘못된 선택입니다. 1 부터 3까지의 숫자를 입력하세요."
     exit 1
 fi
 
