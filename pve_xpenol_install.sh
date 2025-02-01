@@ -113,17 +113,17 @@ read -p "선택 (1 - 3): " IMAGE_CHOICE
 
 # 이미지 파일 경로 설정
 if [ "$IMAGE_CHOICE" -eq 1 ]; then
-    IMG_URL="https://github.com/PeterSuh-Q3/tinycore-redpill/releases/download/v1.1.0.1/tinycore-redpill.v1.1.0.1.m-shell.img.gz"
+    IMG_URL="https://github.com/PeterSuh-Q3/tinycore-redpill/releases/download/v1.2.0.0/tinycore-redpill.v1.2.0.0.m-shell.img.gz"
     IMG_PATH="/var/lib/vz/template/iso/m-shell.img"
     wget $IMG_URL -O /var/lib/vz/template/iso/m-shell.img.gz
     gunzip -f /var/lib/vz/template/iso/m-shell.img.gz
 elif [ "$IMAGE_CHOICE" -eq 2 ]; then
-    IMG_URL="https://github.com/RROrg/rr/releases/download/25.1.0/rr-25.1.0.img.zip"
-    IMG_ZIP_PATH="/var/lib/vz/template/iso/rr-25.1.0.img.zip"
+    IMG_URL="https://github.com/RROrg/rr/releases/download/25.1.4/rr-25.1.4.img.zip"
+    IMG_ZIP_PATH="/var/lib/vz/template/iso/rr-25.1.4.img.zip"
     IMG_PATH="/var/lib/vz/template/iso/rr.img"
     download_and_extract_image $IMG_URL $IMG_ZIP_PATH $IMG_PATH
 elif [ "$IMAGE_CHOICE" -eq 3 ]; then
-    IMG_URL="https://github.com/PeterSuh-Q3/tinycore-redpill/releases/download/v1.1.0.1/tinycore-redpill.v1.1.0.1.xtcrp.img.gz"
+    IMG_URL="https://github.com/PeterSuh-Q3/tinycore-redpill/releases/download/v1.2.0.0/tinycore-redpill.v1.2.0.0.xtcrp.img.gz"
     IMG_PATH="/var/lib/vz/template/iso/xtcrp.img"
     wget $IMG_URL -O /var/lib/vz/template/iso/xtcrp.img.gz
     gunzip -f /var/lib/vz/template/iso/xtcrp.img.gz
