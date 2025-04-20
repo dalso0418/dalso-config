@@ -1,5 +1,107 @@
 #!/bin/bash
 
+# 숫자만 입력 검증 함수
+read_number() {
+    local prompt="$1"
+    local default="$2"
+    local var
+    while true; do
+        read -e -i "$default" -p "$prompt" var
+        if [[ "$var" =~ ^[0-9]+$ ]]; then
+            echo "$var"
+            return 0
+        else
+            echo "숫자만 입력해 주세요."
+        fi
+    done
+}
+
+# 영문자만 입력 검증 함수
+read_alpha() {
+    local prompt="$1"
+    local default="$2"    
+    local var
+    while true; do
+        read -e -i "$default" -p "$prompt" var
+        if [[ "$var" =~ ^[a-zA-Z]+$ ]]; then
+            echo "$var"
+            return 0
+        else
+            echo "영문자만 입력해 주세요."
+        fi
+    done
+}
+
+# 영문 또는 숫자만 입력 검증 함수
+read_alphanum() {
+    local prompt="$1"
+    local default="$2"    
+    local var
+    while true; do
+        read -e -i "$default" -p "$prompt" var
+        if [[ "$var" =~ ^[a-zA-Z0-9-]+$ ]]; then
+            echo "$var"
+            return 0
+        else
+            echo "영문자, 숫자 또는 - 만 입력해 주세요."
+        fi
+    done
+}
+
+# VM ID 검증 함수
+read_vmid() {
+    local prompt="$1"
+    local default="$2"    
+    local var
+    while true; do
+        read -e -i "$default" -p "$prompt" var
+        if [ -f "/etc/pve/qemu-server/${var}.conf" ]; then
+            echo "이미 존재하는 VMID입니다. 다른 번호를 입력해 주세요."
+        elif [[ "$var" =~ ^[0-9]+$ ]]; then
+            if (( var >= 100 )); then
+                echo "$var"
+                return 0
+            else
+                echo "100 이상의 숫자만 입력해 주세요."
+            fi
+        else
+            echo "숫자만 입력해 주세요."
+        fi
+    done
+}
+
+# 디스크 수 검증 함수
+validate_disk_count() {
+    local prompt="$1"
+    local default="$2"    
+    local var
+    while true; do
+        read -e -i "$default" -p "$prompt" var
+        if [[ "$var" =~ ^[1-9]+$ ]]; then
+            echo "$var"
+            return 0
+        else
+            echo "디스크 수는 1부터 9까지의 숫자여야 합니다."
+        fi
+    done
+}
+
+# 디스크 타입 검증 함수
+validate_disk_type() {
+    local prompt="$1"
+    local default="$2"    
+    local var
+    while true; do
+        read -e -i "$default" -p "$prompt" var
+        if [ "$var" != "sata" ] && [ "$var" != "scsi" ]; then
+            echo "잘못된 디스크 타입입니다. sata 또는 scsi를 입력해 주세요."        
+        else
+            echo "$var"
+            return 0
+        fi
+    done
+}
+
 # 필요한 패키지 확인 및 설치
 install_package() {
     local package=$1
@@ -22,7 +124,7 @@ download_and_extract_image() {
     local url=$1
     local zip_path=$2
     local img_path=$3
-    wget $url -O $zip_path
+    curl -kL# $url -o $zip_path
     unzip -o $zip_path -d $(dirname $img_path)
 }
 
@@ -40,31 +142,11 @@ add_disk() {
     fi
 }
 
-# 디스크 타입 검증 함수
-validate_disk_type() {
-    local DISK_TYPE=$1
-    if [ "$DISK_TYPE" != "sata" ] && [ "$DISK_TYPE" != "scsi" ]; then
-        echo "잘못된 디스크 타입입니다. sata 또는 scsi를 입력해 주세요."
-        return 1
-    fi
-    return 0
-}
-
-# 디스크 수 검증 함수
-validate_disk_count() {
-    local COUNT=$1
-    if [[ ! "$COUNT" =~ ^[1-9]$ ]]; then
-        echo "디스크 수는 1부터 9까지의 숫자여야 합니다."
-        return 1
-    fi
-    return 0
-}
-
 # 사용자 입력 받기
-read -p "VM 번호를 입력하세요 (숫자): " VMID
-read -p "VM 이름을 입력하세요 : " VMNAME
-read -p "CPU 코어 수를 입력하세요 : " CORES
-read -p "RAM 크기를 MB 단위로 입력하세요 (ex)4096=4G: " RAM
+VMID=$(read_vmid "VM 번호를 입력하세요 (숫자만): " "100")
+VMNAME=$(read_alphanum "VM 이름을 입력하세요 : " "M-SHELL")
+CORES=$(read_number "CPU 코어 수를 입력하세요 (숫자만): " "4")
+RAM=$(read_number "RAM 크기를 MB 단위로 입력하세요 (숫자만) (ex)4096=4G: " "4096")
 
 # 현재 노드 이름 가져오기
 NODE=$(hostname)
@@ -74,26 +156,16 @@ echo "현재 노드에서 사용 가능한 스토리지 목록 및 용량:"
 pvesh get /nodes/$NODE/storage
 
 # 디스크 수 입력 받기
-while true; do
-    read -p "사용할 디스크 수를 입력하세요: " DISK_COUNT
-    if validate_disk_count $DISK_COUNT; then
-        break
-    fi
-done
+DISK_COUNT=$(validate_disk_count "사용할 디스크 수를 입력하세요: " "1")
 
 # 디스크 정보 입력 받기 및 추가
 declare -a DISK_ARRAY
 for (( i=0; i<$DISK_COUNT; i++ ))
 do
     echo "디스크 $((i+1)) 설정:"
-    while true; do
-        read -p "디스크 타입을 입력하세요 (sata 또는 scsi): " DISK_TYPE
-        if validate_disk_type $DISK_TYPE; then
-            break
-        fi
-    done
-    read -p "스토리지 이름을 입력하세요 (ex. local-LVM): " STORAGE_NAME
-    read -p "디스크 크기를 GB 단위로 입력하세요: " DISK_SIZE
+    DISK_TYPE=$(validate_disk_type "디스크 타입을 입력하세요 (sata 또는 scsi): " "sata")    
+    STORAGE_NAME=$(read_alphanum "스토리지 이름을 입력하세요 (ex. local-lvm): " "local-lvm")
+    DISK_SIZE=$(read_number "디스크 크기를 GB 단위로 입력하세요: " "512")
     DISK_ARRAY+=("$DISK_TYPE $STORAGE_NAME $DISK_SIZE")
 done
 
@@ -102,7 +174,7 @@ echo "사용 가능한 네트워크 브릿지 목록 :"
 pvesh get /nodes/$NODE/network
 
 # 네트워크 브릿지 입력 받기
-read -p "사용할 네트워크 브릿지 이름을 입력하세요 (ex. vmbr0) : " NET_BRIDGE
+NET_BRIDGE=$(read_alphanum "사용할 네트워크 브릿지 이름을 입력하세요 (ex. vmbr0): " "vmbr0")
 
 # 이미지 파일 선택
 echo "사용할 이미지 파일을 선택하세요:"
@@ -113,19 +185,25 @@ read -p "선택 (1 - 3): " IMAGE_CHOICE
 
 # 이미지 파일 경로 설정
 if [ "$IMAGE_CHOICE" -eq 1 ]; then
-    IMG_URL="https://github.com/PeterSuh-Q3/tinycore-redpill/releases/download/v1.2.0.0/tinycore-redpill.v1.2.0.0.m-shell.img.gz"
+    LATESTURL="`curl --connect-timeout 5 -skL -w %{url_effective} -o /dev/null "https://github.com/PeterSuh-Q3/tinycore-redpill/releases/latest"`"
+    TAG="${LATESTURL##*/}"
+    IMG_URL="https://github.com/PeterSuh-Q3/tinycore-redpill/releases/download/${TAG}/tinycore-redpill.${TAG}.m-shell.img.gz"
     IMG_PATH="/var/lib/vz/template/iso/m-shell.img"
-    wget $IMG_URL -O /var/lib/vz/template/iso/m-shell.img.gz
+    curl -kL# $IMG_URL -o /var/lib/vz/template/iso/m-shell.img.gz
     gunzip -f /var/lib/vz/template/iso/m-shell.img.gz
 elif [ "$IMAGE_CHOICE" -eq 2 ]; then
-    IMG_URL="https://github.com/RROrg/rr/releases/download/25.1.4/rr-25.1.4.img.zip"
-    IMG_ZIP_PATH="/var/lib/vz/template/iso/rr-25.1.4.img.zip"
+    LATESTURL="`curl --connect-timeout 5 -skL -w %{url_effective} -o /dev/null "https://github.com/RROrg/rr/releases/latest"`"
+    TAG="${LATESTURL##*/}"
+    IMG_URL="https://github.com/RROrg/rr/releases/download/${TAG}/rr-${TAG}.img.zip"
+    IMG_ZIP_PATH="/var/lib/vz/template/iso/rr-${TAG}.img.zip"
     IMG_PATH="/var/lib/vz/template/iso/rr.img"
     download_and_extract_image $IMG_URL $IMG_ZIP_PATH $IMG_PATH
 elif [ "$IMAGE_CHOICE" -eq 3 ]; then
-    IMG_URL="https://github.com/PeterSuh-Q3/tinycore-redpill/releases/download/v1.2.0.0/tinycore-redpill.v1.2.0.0.xtcrp.img.gz"
+    LATESTURL="`curl --connect-timeout 5 -skL -w %{url_effective} -o /dev/null "https://github.com/PeterSuh-Q3/tinycore-redpill/releases/latest"`"
+    TAG="${LATESTURL##*/}"
+    IMG_URL="https://github.com/PeterSuh-Q3/tinycore-redpill/releases/download/${TAG}/tinycore-redpill.${TAG}.xtcrp.img.gz"
     IMG_PATH="/var/lib/vz/template/iso/xtcrp.img"
-    wget $IMG_URL -O /var/lib/vz/template/iso/xtcrp.img.gz
+    curl -kL# $IMG_URL -o /var/lib/vz/template/iso/xtcrp.img.gz
     gunzip -f /var/lib/vz/template/iso/xtcrp.img.gz
 else
     echo "잘못된 선택입니다. 1 부터 3까지의 숫자를 입력하세요."
