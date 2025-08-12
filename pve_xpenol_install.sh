@@ -1,259 +1,228 @@
 #!/bin/bash
 
-# 숫자만 입력 검증 함수
-read_number() {
-    local prompt="$1"
-    local default="$2"
-    local var
-    while true; do
-        read -e -i "$default" -p "$prompt" var
-        if [[ "$var" =~ ^[0-9]+$ ]]; then
-            echo "$var"
-            return 0
-        else
-            echo "숫자만 입력해 주세요."
-        fi
-    done
+# Color Palette
+G='\033[1;32m'
+R='\033[0;31m'
+B='\033[0;34m'
+Y='\033[0;33m'
+N='\033[0m'
+
+# --- Helper Functions ---
+
+# Display a message with a color
+msg() {
+    local text="$1"
+    local color="$2"
+    echo -e "${color}${text}${N}"
 }
 
-# 영문자만 입력 검증 함수
-read_alpha() {
-    local prompt="$1"
-    local default="$2"    
-    local var
-    while true; do
-        read -e -i "$default" -p "$prompt" var
-        if [[ "$var" =~ ^[a-zA-Z]+$ ]]; then
-            echo "$var"
-            return 0
-        else
-            echo "영문자만 입력해 주세요."
-        fi
-    done
-}
-
-# 영문 또는 숫자만 입력 검증 함수
-read_alphanum() {
-    local prompt="$1"
-    local default="$2"    
-    local var
-    while true; do
-        read -e -i "$default" -p "$prompt" var
-        if [[ "$var" =~ ^[a-zA-Z0-9-]+$ ]]; then
-            echo "$var"
-            return 0
-        else
-            echo "영문자, 숫자 또는 - 만 입력해 주세요."
-        fi
-    done
-}
-
-# VM ID 검증 함수
-read_vmid() {
-    local prompt="$1"
-    local default="$2"    
-    local var
-    while true; do
-        read -e -i "$default" -p "$prompt" var
-        if [ -f "/etc/pve/qemu-server/${var}.conf" ]; then
-            echo "이미 존재하는 VMID입니다. 다른 번호를 입력해 주세요."
-        elif [[ "$var" =~ ^[0-9]+$ ]]; then
-            if (( var >= 100 )); then
-                echo "$var"
-                return 0
-            else
-                echo "100 이상의 숫자만 입력해 주세요."
-            fi
-        else
-            echo "숫자만 입력해 주세요."
-        fi
-    done
-}
-
-# 디스크 수 검증 함수
-validate_disk_count() {
-    local prompt="$1"
-    local default="$2"    
-    local var
-    while true; do
-        read -e -i "$default" -p "$prompt" var
-        if [[ "$var" =~ ^[1-9]+$ ]]; then
-            echo "$var"
-            return 0
-        else
-            echo "디스크 수는 1부터 9까지의 숫자여야 합니다."
-        fi
-    done
-}
-
-# 디스크 타입 검증 함수
-validate_disk_type() {
-    local prompt="$1"
-    local default="$2"    
-    local var
-    while true; do
-        read -e -i "$default" -p "$prompt" var
-        if [ "$var" != "sata" ] && [ "$var" != "scsi" ]; then
-            echo "잘못된 디스크 타입입니다. sata 또는 scsi를 입력해 주세요."        
-        else
-            echo "$var"
-            return 0
-        fi
-    done
-}
-
-# 필요한 패키지 확인 및 설치
-install_package() {
-    local package=$1
-    if ! dpkg -l | grep -q "^ii  $package "; then
-        echo "$package 패키지가 설치되어 있지 않습니다. 설치를 진행합니다..."
-        apt-get update -y > /dev/null 2>&1
-        apt-get install -y $package > /dev/null 2>&1
-        echo "$package 패키지 설치가 완료되었습니다."
-    else
-        echo "$package 패키지가 이미 설치되어 있습니다."
-    fi
-}
-
-# jq 및 unzip 패키지 설치 확인
-install_package "jq"
-install_package "unzip"
-
-# 이미지 파일 다운로드 및 압축 해제 함수
-download_and_extract_image() {
-    local url=$1
-    local zip_path=$2
-    local img_path=$3
-    curl -kL# $url -o $zip_path
-    unzip -o $zip_path -d $(dirname $img_path)
-}
-
-# 디스크 추가 함수
-add_disk() {
-    local DISK_TYPE=$1
-    local STORAGE_NAME=$2
-    local DISK_SIZE=$3
-    local DISK_INDEX=$4
-
-    if [ "$DISK_TYPE" == "sata" ]; then
-        qm set $VMID --sata${DISK_INDEX} $STORAGE_NAME:$DISK_SIZE
-    elif [ "$DISK_TYPE" == "scsi" ]; then
-        qm set $VMID --scsihw virtio-scsi-single --scsi${DISK_INDEX} $STORAGE_NAME:$DISK_SIZE
-    fi
-}
-
-# /etc/pve/qemu-server 디렉토리의 .conf 파일에서 VMID 추출
-max_vmid=$(ls /etc/pve/qemu-server/*.conf 2>/dev/null | \
-    sed -e 's/.*\///' -e 's/\.conf$//' | sort -n | tail -1)
-# VMID가 없을 경우 기본값 100 설정 (Proxmox 규칙)
-if [ -z "$max_vmid" ]; then
-    max_vmid=100
-fi
-# 다음 VMID 계산
-nextvmid=$((max_vmid + 1))
-
-# 사용자 입력 받기
-VMID=$(read_vmid "VM 번호를 입력하세요 (숫자만): " "${nextvmid}")
-VMNAME=$(read_alphanum "VM 이름을 입력하세요 : " "M-SHELL")
-CORES=$(read_number "CPU 코어 수를 입력하세요 (숫자만): " "4")
-RAM=$(read_number "RAM 크기를 MB 단위로 입력하세요 (숫자만) (ex)4096=4G: " "4096")
-
-# 현재 노드 이름 가져오기
-NODE=$(hostname)
-
-# Proxmox에서 현재 노드의 스토리지 목록 가져오기
-echo "현재 노드에서 사용 가능한 스토리지 목록 및 용량:"
-pvesh get /nodes/$NODE/storage
-
-# 디스크 수 입력 받기
-DISK_COUNT=$(validate_disk_count "사용할 디스크 수를 입력하세요: " "1")
-
-# 디스크 정보 입력 받기 및 추가
-declare -a DISK_ARRAY
-for (( i=0; i<$DISK_COUNT; i++ ))
-do
-    echo "디스크 $((i+1)) 설정:"
-    DISK_TYPE=$(validate_disk_type "디스크 타입을 입력하세요 (sata 또는 scsi): " "sata")    
-    STORAGE_NAME=$(read_alphanum "스토리지 이름을 입력하세요 (ex. local-lvm): " "local-lvm")
-    DISK_SIZE=$(read_number "디스크 크기를 GB 단위로 입력하세요: " "512")
-    DISK_ARRAY+=("$DISK_TYPE $STORAGE_NAME $DISK_SIZE")
-done
-
-# 네트워크 브릿지 목록 출력
-echo "사용 가능한 네트워크 브릿지 목록 :"
-pvesh get /nodes/$NODE/network
-
-# 네트워크 브릿지 입력 받기
-NET_BRIDGE=$(read_alphanum "사용할 네트워크 브릿지 이름을 입력하세요 (ex. vmbr0): " "vmbr0")
-
-# 이미지 파일 선택
-echo "사용할 이미지 파일을 선택하세요:"
-echo "1. m-shell (m-shell.img)"
-echo "2. RR (rr.img.zip)"
-echo "3. xTCRP (xtcrp.img)"
-read -p "선택 (1 - 3): " IMAGE_CHOICE
-
-# 이미지 파일 경로 설정
-if [ "$IMAGE_CHOICE" -eq 1 ]; then
-    LATESTURL="`curl --connect-timeout 5 -skL -w %{url_effective} -o /dev/null "https://github.com/PeterSuh-Q3/tinycore-redpill/releases/latest"`"
-    TAG="${LATESTURL##*/}"
-    IMG_URL="https://github.com/PeterSuh-Q3/tinycore-redpill/releases/download/${TAG}/tinycore-redpill.${TAG}.m-shell.img.gz"
-    IMG_PATH="/var/lib/vz/template/iso/m-shell.img"
-    curl -kL# $IMG_URL -o /var/lib/vz/template/iso/m-shell.img.gz
-    gunzip -f /var/lib/vz/template/iso/m-shell.img.gz
-elif [ "$IMAGE_CHOICE" -eq 2 ]; then
-    LATESTURL="`curl --connect-timeout 5 -skL -w %{url_effective} -o /dev/null "https://github.com/RROrg/rr/releases/latest"`"
-    TAG="${LATESTURL##*/}"
-    IMG_URL="https://github.com/RROrg/rr/releases/download/${TAG}/rr-${TAG}.img.zip"
-    IMG_ZIP_PATH="/var/lib/vz/template/iso/rr-${TAG}.img.zip"
-    IMG_PATH="/var/lib/vz/template/iso/rr.img"
-    download_and_extract_image $IMG_URL $IMG_ZIP_PATH $IMG_PATH
-elif [ "$IMAGE_CHOICE" -eq 3 ]; then
-    LATESTURL="`curl --connect-timeout 5 -skL -w %{url_effective} -o /dev/null "https://github.com/PeterSuh-Q3/tinycore-redpill/releases/latest"`"
-    TAG="${LATESTURL##*/}"
-    IMG_URL="https://github.com/PeterSuh-Q3/tinycore-redpill/releases/download/${TAG}/tinycore-redpill.${TAG}.xtcrp.img.gz"
-    IMG_PATH="/var/lib/vz/template/iso/xtcrp.img"
-    curl -kL# $IMG_URL -o /var/lib/vz/template/iso/xtcrp.img.gz
-    gunzip -f /var/lib/vz/template/iso/xtcrp.img.gz
-else
-    echo "잘못된 선택입니다. 1 부터 3까지의 숫자를 입력하세요."
+# Find the absolute path to jq to avoid PATH issues
+JQ_CMD=$(which jq)
+if [ -z "$JQ_CMD" ]; then
+    msg "jq command not found. Please install jq and ensure it's in your PATH." "$R"
     exit 1
 fi
 
-# VM 생성
-qm create $VMID --name $VMNAME --memory $RAM --cores $CORES --net0 virtio,bridge=$NET_BRIDGE --bios seabios --ostype l26
+# Install necessary packages if they are not installed
+install_package() {
+    if ! dpkg -s "$1" &>/dev/null;
+    then
+        msg "Installing $1..." "$Y"
+        apt-get update >/dev/null
+        apt-get install -y "$1" >/dev/null
+    fi
+}
 
-# 디스크 추가
-for (( i=0; i<$DISK_COUNT; i++ ))
-do
-    DISK_INFO=(${DISK_ARRAY[$i]})
-    add_disk ${DISK_INFO[0]} ${DISK_INFO[1]} ${DISK_INFO[2]} $i
-done
+# --- Proxmox API Functions using whiptail ---
 
-# 부팅 순서 설정 (net0 우선)
-qm set $VMID --boot order=net0
+# Get available storages and let the user choose
+select_storage() {
+    local prompt_text=$1
+    local content_type=$2
+    local whiptail_options=()
 
-# 커스텀 args 추가
-qm set $VMID --args "-drive 'if=none,id=synoboot,format=raw,file=$IMG_PATH' -device 'qemu-xhci,addr=0x18' -device 'usb-storage,drive=synoboot,bootindex=5'"
+    # ENHANCEMENT: Filter out storages with 0 available space
+    while IFS=$'\t' read -r name desc; do
+        whiptail_options+=("$name" "$desc")
+    done < <(pvesh get /nodes/$(hostname)/storage --output-format json | "$JQ_CMD" -r '
+        .[] |
+        select(
+            (has("disable") | not) and
+            (.content | contains("'"$content_type"'")) and
+            .type != "nfs" and .type != "cifs" and
+            has("total") and has("avail") and .avail > 0
+        ) |
+        .storage + "\t" + "[" + .type + "] " + ((.avail / 1073741824) | tostring | .[0:5]) + "G / " + ((.total / 1073741824) | tostring | .[0:5]) + "G"
+    ')
 
-# VM 시작
-qm start $VMID
+    if [ ${#whiptail_options[@]} -eq 0 ]; then
+        whiptail --msgbox "No suitable storage with available space found for content type '$content_type'." 10 70
+        exit 1
+    fi
 
-# 요약 정보 출력
-echo "-----------------------------------------------------"
-echo "VM 생성 및 시작이 완료되었습니다!"
-echo "VM ID: $VMID"
-echo "VM 이름: $VMNAME"
-echo "CPU 코어 수: $CORES"
-echo "RAM 크기: $RAM MB"
-echo "네트워크 브릿지: $NET_BRIDGE"
-echo "이미지 파일: $IMG_PATH"
-echo "디스크 수: $DISK_COUNT"
+    # UI FIX: Ensured the prompt text is correctly displayed inside the menu box
+    selected_storage=$(whiptail --title "Storage Selection" --menu "$prompt_text" 20 78 10 "${whiptail_options[@]}" 3>&1 1>&2 2>&3)
 
-for (( i=0; i<$DISK_COUNT; i++ ))
-do
-    DISK_INFO=(${DISK_ARRAY[$i]})
-    echo "디스크 $((i+1)) - 타입: ${DISK_INFO[0]}, 스토리지: ${DISK_INFO[1]}, 크기: ${DISK_INFO[2]} GB"
-done
+    if [ $? -ne 0 ] || [ -z "$selected_storage" ]; then
+        msg "No storage selected. Exiting." "$R"
+        exit 1
+    fi
 
-echo "VM 생성 및 시작이 완료되었습니다!"
+    echo "$selected_storage"
+}
+
+# Get available network bridges and let the user choose
+select_bridge() {
+    local prompt_text=$1
+    local whiptail_options=()
+
+    while IFS=$'\t' read -r name desc; do
+        whiptail_options+=("$name" "$desc")
+    done < <(pvesh get /nodes/$(hostname)/network --output-format json | "$JQ_CMD" -r '.[] | select(.type == "bridge" and (has("disable") | not)) | .iface + "\t" + (.cidr // "no CIDR")')
+
+    if [ ${#whiptail_options[@]} -eq 0 ]; then
+        whiptail --msgbox "No active network bridge found." 10 60
+        exit 1
+    fi
+
+    # UI FIX: Ensured the prompt text is correctly displayed inside the menu box
+    selected_bridge=$(whiptail --title "Network Selection" --menu "$prompt_text" 20 78 10 "${whiptail_options[@]}" 3>&1 1>&2 2>&3)
+
+    if [ $? -ne 0 ] || [ -z "$selected_bridge" ]; then
+        msg "No network bridge selected. Exiting." "$R"
+        exit 1
+    fi
+
+    echo "$selected_bridge"
+}
+
+
+# --- Main Logic ---
+
+# Check for root privileges
+if [ "$(id -u)" -ne 0 ]; then
+    msg "This script must be run as root." "$R"
+    exit 1
+fi
+
+# Install dependencies
+install_package "unzip"
+install_package "whiptail"
+
+
+# --- Script Flow Step 1: Core VM Config ---
+whiptail --title "Step 1: Core VM Configuration" --msgbox "This step configures the basic information for the Xpenology virtual machine.\n\nYou will enter the ID, Name, number of CPU cores, and Memory (RAM) in sequence." 10 70
+
+VMID=$(whiptail --inputbox "Enter VM ID" 10 60 "$(pvesh get /cluster/nextid)" 3>&1 1>&2 2>&3)
+if [ $? -ne 0 ] || [ -z "$VMID" ]; then msg "VM ID cannot be empty." "$R"; exit 1; fi
+
+VMNAME=$(whiptail --inputbox "Enter VM Name" 10 60 "Xpenology" 3>&1 1>&2 2>&3)
+if [ $? -ne 0 ] || [ -z "$VMNAME" ]; then msg "VM Name cannot be empty." "$R"; exit 1; fi
+
+CORES=$(whiptail --inputbox "Enter CPU Cores" 10 60 "2" 3>&1 1>&2 2>&3)
+if ! [[ "$CORES" =~ ^[0-9]+$ ]]; then msg "Invalid number of cores." "$R"; exit 1; fi
+
+RAM=$(whiptail --inputbox "Enter RAM in MB" 10 60 "2048" 3>&1 1>&2 2>&3)
+if ! [[ "$RAM" =~ ^[0-9]+$ ]]; then msg "Invalid RAM size." "$R"; exit 1; fi
+
+
+# --- Script Flow Step 2: Storage Config ---
+whiptail --title "Step 2: Data Disk Configuration" --msgbox "This step configures the VM's main data disk.\n\nYou will select the disk bus type, disk capacity, and the storage where the disk will be created." 10 70
+
+BUS_CHOICE=$(whiptail --title "Disk Bus Type" --menu "Select the disk bus type for the VM." 15 60 2 \
+"1" "VirtIO SCSI (DS3622xs+)" \
+"2" "SATA (SA6400, DS920+, etc)" 3>&1 1>&2 2>&3)
+if [ $? -ne 0 ]; then msg "No disk bus type selected. Exiting." "$R"; exit 1; fi
+
+case $BUS_CHOICE in
+    1) BUS_TYPE_PARAM="scsi";;
+    2) BUS_TYPE_PARAM="sata";;
+    *) msg "Invalid choice. Exiting." "$R"; exit 1;;
+esac
+
+DISK_SIZE=$(whiptail --inputbox "Enter Data Disk Size in GB" 10 60 "32" 3>&1 1>&2 2>&3)
+if ! [[ "$DISK_SIZE" =~ ^[0-9]+$ ]]; then msg "Invalid disk size." "$R"; exit 1; fi
+
+DATA_STORAGE=$(select_storage "Please select the storage for the DATA disk (${DISK_SIZE}G)." "images")
+
+
+# --- Script Flow Step 3: Network Config ---
+whiptail --title "Step 3: Network Configuration" --msgbox "This step selects the network bridge for the virtual machine.\n\nThis is typically 'vmbr0'." 10 70
+BRIDGE=$(select_bridge "Please select the network bridge for the VM.")
+
+
+# --- Script Flow Step 4: Bootloader Selection and Preparation ---
+whiptail --title "Step 4: Bootloader Configuration" --msgbox "Finally, select the bootloader type for Xpenology.\n\nThe selected bootloader will be stored on Proxmox 'local' storage and attached as a virtual USB drive." 12 70
+IMAGE_CHOICE=$(whiptail --menu "Choose a bootloader image" 15 60 4 \
+"1" "m-shell" \
+"2" "RR" \
+"3" "xTCRP" 3>&1 1>&2 2>&3)
+if [ $? -ne 0 ]; then msg "No image selected. Exiting." "$R"; exit 1; fi
+
+case $IMAGE_CHOICE in
+    1) IMAGE_NAME="m-shell"; LATESTURL=$(curl -sL -w %{url_effective} -o /dev/null "https://github.com/PeterSuh-Q3/tinycore-redpill/releases/latest"); TAG="${LATESTURL##*/}"; IMG_URL="https://github.com/PeterSuh-Q3/tinycore-redpill/releases/download/${TAG}/tinycore-redpill.${TAG}.m-shell.img.gz";;
+    2) IMAGE_NAME="RR"; LATESTURL=$(curl -sL -w %{url_effective} -o /dev/null "https://github.com/RROrg/rr/releases/latest"); TAG="${LATESTURL##*/}"; IMG_URL="https://github.com/RROrg/rr/releases/download/${TAG}/rr-${TAG}.img.zip";;
+    3) IMAGE_NAME="xTCRP"; LATESTURL=$(curl -sL -w %{url_effective} -o /dev/null "https://github.com/PeterSuh-Q3/tinycore-redpill/releases/latest"); TAG="${LATESTURL##*/}"; IMG_URL="https://github.com/PeterSuh-Q3/tinycore-redpill/releases/download/${TAG}/tinycore-redpill.${TAG}.xtcrp.img.gz";;
+    *) msg "Invalid image choice." "$R"; exit 1;;
+esac
+
+# Bootloader image will be stored permanently in /var/lib/vz/template/iso
+BOOTLOADER_DIR="/var/lib/vz/template/iso"
+mkdir -p "$BOOTLOADER_DIR"
+IMG_PATH="${BOOTLOADER_DIR}/${IMAGE_NAME}-${VMID}.img" # Add VMID to filename to allow multiple VMs
+
+# Clean up old downloaded archives on exit
+trap 'rm -f "${IMG_PATH}.gz" "${IMG_PATH}.zip"' EXIT
+
+msg "Downloading and preparing ${IMAGE_NAME} image to ${IMG_PATH}..." "$Y"
+if [[ "$IMG_URL" == *.zip ]]; then
+    curl -kL# "$IMG_URL" -o "${IMG_PATH}.zip"
+    unzip -o "${IMG_PATH}.zip" -d "$BOOTLOADER_DIR"
+    UNZIPPED_IMG=$(find "$BOOTLOADER_DIR" -name "*.img" -not -path "$IMG_PATH" | head -n 1)
+    if [ -n "$UNZIPPED_IMG" ]; then
+        mv "$UNZIPPED_IMG" "$IMG_PATH"
+    fi
+else
+    curl -kL# "$IMG_URL" -o "${IMG_PATH}.gz"
+    gunzip -f "${IMG_PATH}.gz"
+fi
+
+if [ ! -f "$IMG_PATH" ]; then
+    msg "Could not find .img file after download and extraction." "$R"; exit 1;
+fi
+
+# --- Script Flow Step 5: Final VM Creation and Configuration ---
+msg "Step 5: Creating and configuring VM ${VMID}..." "$Y"
+qm create "$VMID" --name "$VMNAME" --memory "$RAM" --cores "$CORES" --net0 virtio,bridge="$BRIDGE" --bios seabios --ostype l26
+if [ $? -ne 0 ]; then msg "Failed to create VM." "$R"; exit 1; fi
+
+# Set controller if SCSI is chosen
+if [ "$BUS_TYPE_PARAM" == "scsi" ]; then
+    qm set "$VMID" --scsihw virtio-scsi-pci
+fi
+
+# Attach the data disk
+qm set "$VMID" --"${BUS_TYPE_PARAM}1" "${DATA_STORAGE}:${DISK_SIZE},discard=on,ssd=1"
+
+# Attach the bootloader as a virtual USB drive using custom QEMU args
+msg "Attaching bootloader as a virtual USB drive..." "$Y"
+QM_ARGS="-drive if=none,id=synoboot,format=raw,file=${IMG_PATH} -device qemu-xhci,id=xhci -device usb-storage,bus=xhci.0,drive=synoboot,bootindex=1"
+qm set "$VMID" --args "$QM_ARGS"
+
+msg "VM configuration complete!" "$G"
+
+
+# --- Final Summary ---
+whiptail --title "Configuration Complete!" --msgbox "Virtual machine creation is complete.\n\nPlease check the summary information printed in the terminal below." 10 70
+
+msg "--- VM Summary ---" "$B"
+msg "VM ID: $VMID" "$G"
+msg "VM Name: $VMNAME" "$G"
+msg "CPU Cores: $CORES" "$G"
+msg "RAM: $RAM MB" "$G"
+msg "Disk Bus: $BUS_TYPE_PARAM" "$G"
+msg "Network: $BRIDGE" "$G"
+msg "Bootloader: Attached directly from ${IMG_PATH}" "$G"
+msg "Data Disk: ${DISK_SIZE}G on $DATA_STORAGE" "$G"
+msg "------------------" "$B"
+msg "You can now start the VM from the Proxmox web interface." "$Y"
