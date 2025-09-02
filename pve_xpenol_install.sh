@@ -16,12 +16,9 @@ msg() {
     echo -e "${color}${text}${N}"
 }
 
-# Find the absolute path to jq to avoid PATH issues
+# Install jq if not available
+install_package "jq"
 JQ_CMD=$(which jq)
-if [ -z "$JQ_CMD" ]; then
-    msg "jq command not found. Please install jq and ensure it's in your PATH." "$R"
-    exit 1
-fi
 
 # Install necessary packages if they are not installed
 install_package() {
@@ -188,7 +185,7 @@ fi
 
 # --- Script Flow Step 5: Final VM Creation and Configuration ---
 msg "Step 5: Creating and configuring VM ${VMID}..." "$Y"
-qm create "$VMID" --name "$VMNAME" --memory "$RAM" --cores "$CORES" --net0 virtio,bridge="$BRIDGE" --bios seabios --ostype l26
+qm create "$VMID" --name "$VMNAME" --memory "$RAM" --cores "$CORES" --bios seabios --ostype l26
 if [ $? -ne 0 ]; then msg "Failed to create VM." "$R"; exit 1; fi
 
 if [ "$BUS_TYPE_PARAM" == "scsi" ]; then
@@ -196,8 +193,13 @@ if [ "$BUS_TYPE_PARAM" == "scsi" ]; then
 fi
 
 qm set "$VMID" --"${BUS_TYPE_PARAM}1" "${DATA_STORAGE}:${DISK_SIZE},discard=on,ssd=1"
+
+# Add network after VM creation
+qm set "$VMID" --net0 virtio,bridge="$BRIDGE"
+
+# Attach the bootloader as a virtual USB drive using custom QEMU args
 msg "Attaching bootloader as a virtual USB drive..." "$Y"
-QM_ARGS="-drive if=none,id=synoboot,format=raw,file=${IMG_PATH} -device qemu-xhci,id=xhci -device usb-storage,bus=xhci.0,drive=synoboot,bootindex=1"
+QM_ARGS="-drive if=none,id=synoboot,format=raw,file=${IMG_PATH} -device qemu-xhci,id=xhci -device usb-storage,bus=xhci.0,drive=synoboot,bootindex=0"
 qm set "$VMID" --args "$QM_ARGS"
 
 msg "VM configuration complete!" "$G"
