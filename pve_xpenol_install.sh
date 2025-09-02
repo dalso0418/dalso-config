@@ -16,10 +16,6 @@ msg() {
     echo -e "${color}${text}${N}"
 }
 
-# Install jq if not available
-install_package "jq"
-JQ_CMD=$(which jq)
-
 # Install necessary packages if they are not installed
 install_package() {
     if ! dpkg -s "$1" &>/dev/null;
@@ -29,6 +25,10 @@ install_package() {
         apt-get install -y "$1" >/dev/null
     fi
 }
+
+# Install jq if not available
+install_package "jq"
+JQ_CMD=$(which jq)
 
 # --- Proxmox API Functions using whiptail ---
 
