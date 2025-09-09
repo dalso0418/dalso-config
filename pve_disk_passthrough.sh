@@ -7,6 +7,15 @@ B='\033[0;34m'
 Y='\033[0;33m'
 N='\033[0m'
 
+# Cleanup function
+cleanup() {
+    msg "Operation interrupted. Exiting..." "$R"
+    exit 130
+}
+
+# Signal handlers
+trap cleanup SIGINT SIGTERM
+
 # --- Helper Functions ---
 
 # Display a message with a color
@@ -54,9 +63,10 @@ select_vm() {
     fi
 
     local selected_vm=$(whiptail --title "VM Selection" --menu "$prompt_text" 20 78 10 "${whiptail_options[@]}" 3>&1 1>&2 2>&3)
-    if [ $? -ne 0 ]; then 
+    local exit_status=$?
+    if [ $exit_status -ne 0 ]; then 
         msg "Canceled." "$R"
-        exit 1
+        exit $exit_status
     fi
 
     echo "$selected_vm"
@@ -93,9 +103,10 @@ select_disk() {
     fi
 
     local selected_disk=$(whiptail --title "Disk Selection" --menu "$prompt_text" 20 78 10 "${whiptail_options[@]}" 3>&1 1>&2 2>&3)
-    if [ $? -ne 0 ]; then 
+    local exit_status=$?
+    if [ $exit_status -ne 0 ]; then 
         msg "Canceled." "$R"
-        exit 1
+        exit $exit_status
     fi
 
     echo "$selected_disk"
@@ -144,16 +155,18 @@ install_package "whiptail"
 
 # Welcome message
 whiptail --title "Proxmox Disk Passthrough Setup" --msgbox "This script will help you configure disk passthrough for a Proxmox VM.\n\nYou will:\n1. Select a VM\n2. Choose a physical disk to passthrough\n3. Configure the passthrough settings" 12 70
-if [ $? -ne 0 ]; then 
+exit_status=$?
+if [ $exit_status -ne 0 ]; then 
     msg "Canceled." "$R"
-    exit 1
+    exit $exit_status
 fi
 
 # --- Step 1: VM Selection ---
 whiptail --title "Step 1: VM Selection" --msgbox "First, select the virtual machine that will receive the disk passthrough." 8 70
-if [ $? -ne 0 ]; then 
+exit_status=$?
+if [ $exit_status -ne 0 ]; then 
     msg "Canceled." "$R"
-    exit 1
+    exit $exit_status
 fi
 
 VMID=$(select_vm "Please select the VM for disk passthrough:")
@@ -165,7 +178,7 @@ msg "Selected VM: $VMID ($VMNAME)" "$G"
 # Check if VM is running
 VM_STATUS=$(qm status "$VMID" 2>/dev/null | grep "^status:" | awk '{print $2}')
 if [ "$VM_STATUS" == "running" ]; then
-    if (whiptail --title "VM Running" --yesno "VM $VMID is currently running. The VM needs to be stopped to add disk passthrough.\n\nWould you like to stop the VM now?" 10 70); then
+    if whiptail --title "VM Running" --yesno "VM $VMID is currently running. The VM needs to be stopped to add disk passthrough.\n\nWould you like to stop the VM now?" 10 70; then
         msg "Stopping VM $VMID..." "$Y"
         qm stop "$VMID"
         # Wait for VM to stop
@@ -181,17 +194,19 @@ fi
 
 # --- Step 2: Disk Bus Type Selection ---
 whiptail --title "Step 2: Disk Bus Type" --msgbox "Select the disk bus type for the passthrough disk.\n\nSCSI: Better performance, supports more devices\nSATA: Better compatibility, native SATA interface" 10 70
-if [ $? -ne 0 ]; then 
+exit_status=$?
+if [ $exit_status -ne 0 ]; then 
     msg "Canceled." "$R"
-    exit 1
+    exit $exit_status
 fi
 
 BUS_CHOICE=$(whiptail --title "Disk Bus Type" --menu "Select the disk bus type for the passthrough disk:" 15 60 2 \
 "1" "SCSI (VirtIO SCSI)" \
 "2" "SATA (Native SATA)" 3>&1 1>&2 2>&3)
-if [ $? -ne 0 ]; then 
+exit_status=$?
+if [ $exit_status -ne 0 ]; then 
     msg "Canceled." "$R"
-    exit 1
+    exit $exit_status
 fi
 
 case $BUS_CHOICE in
@@ -213,9 +228,10 @@ msg "Selected bus type: $BUS_NAME" "$G"
 
 # --- Step 3: Disk Selection ---
 whiptail --title "Step 3: Disk Selection" --msgbox "Now select the physical disk you want to passthrough to the VM.\n\nWARNING: The selected disk will be directly accessed by the VM. Make sure it doesn't contain important data or is not being used by the host system." 12 70
-if [ $? -ne 0 ]; then 
+exit_status=$?
+if [ $exit_status -ne 0 ]; then 
     msg "Canceled." "$R"
-    exit 1
+    exit $exit_status
 fi
 
 DISK=$(select_disk "Please select the physical disk to passthrough:")
@@ -225,7 +241,7 @@ DISK_INFO=$(lsblk -no SIZE,MODEL "$DISK" 2>/dev/null | head -1)
 msg "Selected disk: $DISK ($DISK_INFO)" "$G"
 
 # Confirmation
-if ! (whiptail --title "Confirmation" --yesno "You are about to passthrough the following disk to VM $VMID:\n\nDisk: $DISK\nBus Type: $BUS_NAME\nInfo: $DISK_INFO\nVM: $VMID ($VMNAME)\n\nThis will give the VM direct access to this physical disk.\n\nDo you want to continue?" 16 70); then
+if ! whiptail --title "Confirmation" --yesno "You are about to passthrough the following disk to VM $VMID:\n\nDisk: $DISK\nBus Type: $BUS_NAME\nInfo: $DISK_INFO\nVM: $VMID ($VMNAME)\n\nThis will give the VM direct access to this physical disk.\n\nDo you want to continue?" 16 70; then
     msg "Operation canceled by user." "$Y"
     exit 0
 fi
@@ -282,7 +298,7 @@ fi
 
 # Ask about starting VM
 START_VM="No"
-if (whiptail --title "Start VM?" --yesno "Disk passthrough configuration is complete.\n\nWould you like to start the VM now?" 10 60); then
+if whiptail --title "Start VM?" --yesno "Disk passthrough configuration is complete.\n\nWould you like to start the VM now?" 10 60; then
     msg "Starting VM $VMID..." "$Y"
     qm start "$VMID" 2>/dev/null
     START_VM="Yes"
