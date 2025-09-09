@@ -9,12 +9,17 @@ N='\033[0m'
 
 # Cleanup function
 cleanup() {
+    echo ""
     msg "Operation interrupted. Exiting..." "$R"
+    # Kill any background whiptail processes
+    pkill -f whiptail 2>/dev/null
     exit 130
 }
 
-# Signal handlers
-trap cleanup SIGINT SIGTERM
+# Signal handlers - more comprehensive
+trap cleanup SIGINT SIGTERM SIGQUIT
+# Also handle EXIT to ensure cleanup
+trap 'pkill -f whiptail 2>/dev/null' EXIT
 
 # --- Helper Functions ---
 
@@ -154,19 +159,15 @@ fi
 install_package "whiptail"
 
 # Welcome message
-whiptail --title "Proxmox Disk Passthrough Setup" --msgbox "This script will help you configure disk passthrough for a Proxmox VM.\n\nYou will:\n1. Select a VM\n2. Choose a physical disk to passthrough\n3. Configure the passthrough settings" 12 70
-exit_status=$?
-if [ $exit_status -ne 0 ]; then 
-    msg "Canceled." "$R"
-    exit $exit_status
+if ! whiptail --title "Proxmox Disk Passthrough Setup" --yesno "This script will help you configure disk passthrough for a Proxmox VM.\n\nYou will:\n1. Select a VM\n2. Choose a physical disk to passthrough\n3. Configure the passthrough settings\n\nDo you want to continue?" 15 70; then
+    msg "Operation canceled by user." "$Y"
+    exit 0
 fi
 
 # --- Step 1: VM Selection ---
-whiptail --title "Step 1: VM Selection" --msgbox "First, select the virtual machine that will receive the disk passthrough." 8 70
-exit_status=$?
-if [ $exit_status -ne 0 ]; then 
-    msg "Canceled." "$R"
-    exit $exit_status
+if ! whiptail --title "Step 1: VM Selection" --yesno "First, select the virtual machine that will receive the disk passthrough.\n\nReady to continue?" 10 70; then
+    msg "Operation canceled by user." "$Y"
+    exit 0
 fi
 
 VMID=$(select_vm "Please select the VM for disk passthrough:")
@@ -193,11 +194,9 @@ if [ "$VM_STATUS" == "running" ]; then
 fi
 
 # --- Step 2: Disk Bus Type Selection ---
-whiptail --title "Step 2: Disk Bus Type" --msgbox "Select the disk bus type for the passthrough disk.\n\nSCSI: Better performance, supports more devices\nSATA: Better compatibility, native SATA interface" 10 70
-exit_status=$?
-if [ $exit_status -ne 0 ]; then 
-    msg "Canceled." "$R"
-    exit $exit_status
+if ! whiptail --title "Step 2: Disk Bus Type" --yesno "Select the disk bus type for the passthrough disk.\n\nSCSI: Better performance, supports more devices\nSATA: Better compatibility, native SATA interface\n\nReady to choose bus type?" 12 70; then
+    msg "Operation canceled by user." "$Y"
+    exit 0
 fi
 
 BUS_CHOICE=$(whiptail --title "Disk Bus Type" --menu "Select the disk bus type for the passthrough disk:" 15 60 2 \
@@ -227,11 +226,9 @@ esac
 msg "Selected bus type: $BUS_NAME" "$G"
 
 # --- Step 3: Disk Selection ---
-whiptail --title "Step 3: Disk Selection" --msgbox "Now select the physical disk you want to passthrough to the VM.\n\nWARNING: The selected disk will be directly accessed by the VM. Make sure it doesn't contain important data or is not being used by the host system." 12 70
-exit_status=$?
-if [ $exit_status -ne 0 ]; then 
-    msg "Canceled." "$R"
-    exit $exit_status
+if ! whiptail --title "Step 3: Disk Selection" --yesno "Now select the physical disk you want to passthrough to the VM.\n\nWARNING: The selected disk will be directly accessed by the VM. Make sure it doesn't contain important data or is not being used by the host system.\n\nReady to select disk?" 14 70; then
+    msg "Operation canceled by user." "$Y"
+    exit 0
 fi
 
 DISK=$(select_disk "Please select the physical disk to passthrough:")
