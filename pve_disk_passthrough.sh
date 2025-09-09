@@ -85,7 +85,7 @@ select_disk() {
     # Get physical disks using lsblk and find by-id paths
     while IFS=$'\t' read -r device size model by_ids; do
         # Debug: uncomment to see what we're getting
-        echo "DEBUG: device=$device, size=$size, model=$model, by_ids=[$by_ids]" >&2
+        # echo "DEBUG: device=$device, size=$size, model=$model, by_ids=[$by_ids]" >&2
         # Skip loop devices, partitions, and mounted disks
         if [[ ! "$device" =~ ^/dev/loop ]] && [[ ! "$device" =~ [0-9]$ ]] && [[ "$device" =~ ^/dev/sd[a-z]$|^/dev/nvme[0-9]+n[0-9]+$ ]]; then
             # Check if disk is not mounted
@@ -111,10 +111,10 @@ select_disk() {
                 # If no by-id path found, fall back to device name
                 if [ -z "$by_id_path" ]; then
                     by_id_path="$device"
-                    whiptail_options+=("$by_id_path" "$display_name ($size $model) [WARNING: No stable ID]")
+                    whiptail_options+=("$by_id_path" "$display_name - $size $model [No Stable ID]")
                 else
-                    local id_type=$(basename "$by_id_path" | cut -d'-' -f1)
-                    whiptail_options+=("$by_id_path" "$display_name ($size $model) [$id_type ID]")
+                    local id_type=$(basename "$by_id_path" | cut -d'-' -f1 | tr '[:lower:]' '[:upper:]')
+                    whiptail_options+=("$by_id_path" "$display_name - $size $model [$id_type]")
                 fi
             fi
         fi
@@ -138,7 +138,7 @@ select_disk() {
         exit 1
     fi
 
-    local selected_disk=$(whiptail --title "Disk Selection" --menu "$prompt_text" 20 78 10 "${whiptail_options[@]}" 3>&1 1>&2 2>&3)
+    local selected_disk=$(whiptail --title "Disk Selection" --menu "$prompt_text" 25 120 15 "${whiptail_options[@]}" 3>&1 1>&2 2>&3)
     local exit_status=$?
     if [ $exit_status -ne 0 ]; then 
         msg "Canceled." "$R"
