@@ -38,17 +38,33 @@ select_vm() {
     local prompt_text=$1
     local whiptail_options=()
 
+    # Debug: Show qm list output
+    msg "Getting VM list..." "$Y"
+    local vm_list_output=$(qm list 2>&1)
+    echo "DEBUG - qm list output:"
+    echo "$vm_list_output"
+    echo "DEBUG - End of qm list output"
+
     while read -r line; do
-        if [[ "$line" =~ ^[0-9]+\s+[a-zA-Z0-9_-]+\s+(running|stopped) ]]; then
+        echo "DEBUG - Processing line: [$line]"
+        # Skip header line
+        if [[ "$line" =~ ^VMID ]]; then
+            continue
+        fi
+        # Look for VM entries
+        if [[ "$line" =~ ^[[:space:]]*[0-9]+[[:space:]] ]]; then
             vmid=$(echo "$line" | awk '{print $1}')
             name=$(echo "$line" | awk '{print $2}')
             status=$(echo "$line" | awk '{print $3}')
+            echo "DEBUG - Found VM: $vmid, $name, $status"
             whiptail_options+=("$vmid" "$name ($status)")
         fi
-    done < <(qm list)
+    done <<< "$vm_list_output"
+
+    echo "DEBUG - Total VMs found: ${#whiptail_options[@]}"
 
     if [ ${#whiptail_options[@]} -eq 0 ]; then
-        whiptail --msgbox "No VMs found on this node." 10 60
+        whiptail --msgbox "No VMs found on this node.\n\nDebug info:\n$vm_list_output" 15 80
         exit 1
     fi
 
