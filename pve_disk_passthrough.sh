@@ -28,6 +28,7 @@ install_package() {
 
 # Install jq if not available
 install_package "jq"
+install_package "curl"
 JQ_CMD=$(which jq)
 
 # --- Proxmox API Functions using whiptail ---
@@ -39,7 +40,7 @@ select_vm() {
 
     while IFS=$'\t' read -r vmid name status; do
         whiptail_options+=("$vmid" "$name ($status)")
-    done < <(pvesh get /nodes/$(hostname)/qemu --output-format json | "$JQ_CMD" -r '.[] | .vmid + "\t" + .name + "\t" + .status')
+    done < <(pvesh get /nodes/$(hostname)/qemu --output-format json | "$JQ_CMD" -r '.[] | (.vmid|tostring) + "\t" + .name + "\t" + .status')
 
     if [ ${#whiptail_options[@]} -eq 0 ]; then
         whiptail --msgbox "No VMs found on this node." 10 60
