@@ -192,7 +192,7 @@ if [ "$BUS_TYPE_PARAM" == "scsi" ]; then
     qm set "$VMID" --scsihw virtio-scsi-pci
 fi
 
-qm set "$VMID" --"${BUS_TYPE_PARAM}1" "${DATA_STORAGE}:${DISK_SIZE},discard=on,ssd=1"
+qm set "$VMID" --"${BUS_TYPE_PARAM}0" "${DATA_STORAGE}:${DISK_SIZE},discard=on,ssd=1"
 
 # Add network after VM creation
 qm set "$VMID" --net0 virtio,bridge="$BRIDGE"
