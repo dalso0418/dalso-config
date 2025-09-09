@@ -84,6 +84,8 @@ select_disk() {
 
     # Get physical disks using lsblk and find by-id paths
     while IFS=$'\t' read -r device size model by_ids; do
+        # Debug: uncomment to see what we're getting
+        echo "DEBUG: device=$device, size=$size, model=$model, by_ids=[$by_ids]" >&2
         # Skip loop devices, partitions, and mounted disks
         if [[ ! "$device" =~ ^/dev/loop ]] && [[ ! "$device" =~ [0-9]$ ]] && [[ "$device" =~ ^/dev/sd[a-z]$|^/dev/nvme[0-9]+n[0-9]+$ ]]; then
             # Check if disk is not mounted
