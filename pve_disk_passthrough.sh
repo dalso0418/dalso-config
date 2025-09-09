@@ -38,9 +38,16 @@ select_vm() {
     local prompt_text=$1
     local whiptail_options=()
 
+    # Debug: Test jq command first
+    local vm_json=$(pvesh get /nodes/$(hostname)/qemu --output-format json 2>/dev/null)
+    if [ $? -ne 0 ] || [ -z "$vm_json" ]; then
+        whiptail --msgbox "Failed to get VM list from Proxmox." 10 60
+        exit 1
+    fi
+
     while IFS=$'\t' read -r vmid name status; do
-        whiptail_options+=("$vmid" "$name ($status)")
-    done < <(pvesh get /nodes/$(hostname)/qemu --output-format json | "$JQ_CMD" -r '.[] | (.vmid|tostring) + "\t" + .name + "\t" + .status')
+        [ -n "$vmid" ] && whiptail_options+=("$vmid" "$name ($status)")
+    done < <(echo "$vm_json" | "$JQ_CMD" -r '.[] | [(.vmid|tostring), ((.name//"Unknown")|tostring), ((.status//"unknown")|tostring)] | join("\t")' 2>/dev/null)
 
     if [ ${#whiptail_options[@]} -eq 0 ]; then
         whiptail --msgbox "No VMs found on this node." 10 60
