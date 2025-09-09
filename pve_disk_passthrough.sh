@@ -38,16 +38,14 @@ select_vm() {
     local prompt_text=$1
     local whiptail_options=()
 
-    # Debug: Test jq command first
-    local vm_json=$(pvesh get /nodes/$(hostname)/qemu --output-format json 2>/dev/null)
-    if [ $? -ne 0 ] || [ -z "$vm_json" ]; then
-        whiptail --msgbox "Failed to get VM list from Proxmox." 10 60
-        exit 1
-    fi
-
-    while IFS=$'\t' read -r vmid name status; do
-        [ -n "$vmid" ] && whiptail_options+=("$vmid" "$name ($status)")
-    done < <(echo "$vm_json" | "$JQ_CMD" -r '.[] | [(.vmid|tostring), ((.name//"Unknown")|tostring), ((.status//"unknown")|tostring)] | join("\t")' 2>/dev/null)
+    while read -r line; do
+        if [[ "$line" =~ ^[0-9]+\s+[a-zA-Z0-9_-]+\s+(running|stopped) ]]; then
+            vmid=$(echo "$line" | awk '{print $1}')
+            name=$(echo "$line" | awk '{print $2}')
+            status=$(echo "$line" | awk '{print $3}')
+            whiptail_options+=("$vmid" "$name ($status)")
+        fi
+    done < <(qm list)
 
     if [ ${#whiptail_options[@]} -eq 0 ]; then
         whiptail --msgbox "No VMs found on this node." 10 60
@@ -131,18 +129,19 @@ whiptail --title "Step 1: VM Selection" --msgbox "First, select the virtual mach
 if [ $? -ne 0 ]; then msg "Canceled." "$R"; exit 1; fi
 
 VMID=$(select_vm "Please select the VM for disk passthrough:")
-VMNAME=$(pvesh get /nodes/$(hostname)/qemu/$VMID/config --output-format json | "$JQ_CMD" -r '.name // "Unknown"')
+VMNAME=$(qm config "$VMID" | grep "^name:" | cut -d' ' -f2- | tr -d '"')
+[ -z "$VMNAME" ] && VMNAME="Unknown"
 
 msg "Selected VM: $VMID ($VMNAME)" "$G"
 
 # Check if VM is running
-VM_STATUS=$(pvesh get /nodes/$(hostname)/qemu/$VMID/status/current --output-format json | "$JQ_CMD" -r '.status')
+VM_STATUS=$(qm status "$VMID" | grep "^status:" | awk '{print $2}')
 if [ "$VM_STATUS" == "running" ]; then
     if (whiptail --title "VM Running" --yesno "VM $VMID is currently running. The VM needs to be stopped to add disk passthrough.\n\nWould you like to stop the VM now?" 10 70); then
         msg "Stopping VM $VMID..." "$Y"
         qm stop "$VMID"
         # Wait for VM to stop
-        while [ "$(pvesh get /nodes/$(hostname)/qemu/$VMID/status/current --output-format json | "$JQ_CMD" -r '.status')" != "stopped" ]; do
+        while [ "$(qm status "$VMID" | grep "^status:" | awk '{print $2}')" != "stopped" ]; do
             sleep 2
         done
         msg "VM stopped successfully." "$G"
