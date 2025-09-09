@@ -1,18 +1,11 @@
 #!/bin/bash
 
-# Enable debugging and log to file
-LOGFILE="/tmp/pve_disk_passthrough_debug.log"
-echo "DEBUG: Script started - $(date)" > "$LOGFILE"
-
 # Color Palette
 G='\033[1;32m'
 R='\033[0;31m'
 B='\033[0;34m'
 Y='\033[0;33m'
 N='\033[0m'
-
-echo "DEBUG: Color palette defined" | tee -a "$LOGFILE"
-echo "INFO: Debug log is being written to $LOGFILE"
 
 # --- Helper Functions ---
 
@@ -23,31 +16,15 @@ msg() {
     echo -e "${color}${text}${N}"
 }
 
-echo "DEBUG: msg function defined"
-
 # Install necessary packages if they are not installed
 install_package() {
-    echo "DEBUG: Installing package $1" | tee -a "$LOGFILE"
     if ! dpkg -s "$1" &>/dev/null;
     then
         msg "Installing $1..." "$Y"
-        echo "DEBUG: Running apt-get update..." | tee -a "$LOGFILE"
-        apt-get update 2>&1 | tee -a "$LOGFILE"
-        echo "DEBUG: Running apt-get install $1..." | tee -a "$LOGFILE"
-        apt-get install -y "$1" 2>&1 | tee -a "$LOGFILE"
+        apt-get update >/dev/null
+        apt-get install -y "$1" >/dev/null
     fi
-    echo "DEBUG: Package $1 installation complete" | tee -a "$LOGFILE"
 }
-
-echo "DEBUG: install_package function defined"
-
-# Install packages
-echo "DEBUG: Starting package installation"
-install_package "jq"
-install_package "curl"
-install_package "whiptail"
-JQ_CMD=$(which jq)
-echo "DEBUG: All packages installed"
 
 # --- Proxmox API Functions using whiptail ---
 
@@ -56,11 +33,7 @@ select_vm() {
     local prompt_text=$1
     local whiptail_options=()
 
-    # Get VM list
-    msg "Getting VM list..." "$Y"
-    local vm_list_output=$(qm list 2>&1)
-    echo "DEBUG: qm list executed" | tee -a "$LOGFILE"
-
+    # Get VM list without any extra output
     while read -r line; do
         # Skip header line
         if [[ "$line" =~ ^VMID ]]; then
@@ -68,23 +41,23 @@ select_vm() {
         fi
         # Look for VM entries
         if [[ "$line" =~ ^[[:space:]]*[0-9]+[[:space:]] ]]; then
-            vmid=$(echo "$line" | awk '{print $1}')
-            name=$(echo "$line" | awk '{print $2}')
-            status=$(echo "$line" | awk '{print $3}')
-            echo "DEBUG: Found VM: $vmid, $name, $status" | tee -a "$LOGFILE"
+            local vmid=$(echo "$line" | awk '{print $1}')
+            local name=$(echo "$line" | awk '{print $2}')
+            local status=$(echo "$line" | awk '{print $3}')
             whiptail_options+=("$vmid" "$name ($status)")
         fi
-    done <<< "$vm_list_output"
-
-    echo "DEBUG: Total VMs found: ${#whiptail_options[@]}" | tee -a "$LOGFILE"
+    done < <(qm list 2>/dev/null)
 
     if [ ${#whiptail_options[@]} -eq 0 ]; then
-        whiptail --msgbox "No VMs found on this node.\n\nDebug info:\n$vm_list_output" 15 80
+        whiptail --msgbox "No VMs found on this node." 10 60
         exit 1
     fi
 
-    selected_vm=$(whiptail --title "VM Selection" --menu "$prompt_text" 20 78 10 "${whiptail_options[@]}" 3>&1 1>&2 2>&3)
-    if [ $? -ne 0 ]; then msg "Canceled." "$R"; exit 1; fi
+    local selected_vm=$(whiptail --title "VM Selection" --menu "$prompt_text" 20 78 10 "${whiptail_options[@]}" 3>&1 1>&2 2>&3)
+    if [ $? -ne 0 ]; then 
+        msg "Canceled." "$R"
+        exit 1
+    fi
 
     echo "$selected_vm"
 }
@@ -119,8 +92,11 @@ select_disk() {
         exit 1
     fi
 
-    selected_disk=$(whiptail --title "Disk Selection" --menu "$prompt_text" 20 78 10 "${whiptail_options[@]}" 3>&1 1>&2 2>&3)
-    if [ $? -ne 0 ]; then msg "Canceled." "$R"; exit 1; fi
+    local selected_disk=$(whiptail --title "Disk Selection" --menu "$prompt_text" 20 78 10 "${whiptail_options[@]}" 3>&1 1>&2 2>&3)
+    if [ $? -ne 0 ]; then 
+        msg "Canceled." "$R"
+        exit 1
+    fi
 
     echo "$selected_disk"
 }
@@ -128,7 +104,7 @@ select_disk() {
 # Get available SCSI controllers for the VM
 get_next_scsi_id() {
     local vmid=$1
-    local used_ids=$(qm config "$vmid" | grep -E '^scsi[0-9]+:' | sed 's/^scsi\([0-9]\+\):.*/\1/' | sort -n)
+    local used_ids=$(qm config "$vmid" 2>/dev/null | grep -E '^scsi[0-9]+:' | sed 's/^scsi\([0-9]\+\):.*/\1/' | sort -n)
     
     for i in {0..30}; do
         if ! echo "$used_ids" | grep -q "^$i$"; then
@@ -142,40 +118,43 @@ get_next_scsi_id() {
 
 # --- Main Logic ---
 
-echo "DEBUG: Starting main logic"
-
 # Check for root privileges
-echo "DEBUG: Checking root privileges"
 if [ "$(id -u)" -ne 0 ]; then
     msg "This script must be run as root." "$R"
     exit 1
 fi
-echo "DEBUG: Root check passed"
+
+# Install dependencies
+install_package "whiptail"
 
 # Welcome message
-echo "DEBUG: Showing welcome message"
 whiptail --title "Proxmox Disk Passthrough Setup" --msgbox "This script will help you configure disk passthrough for a Proxmox VM.\n\nYou will:\n1. Select a VM\n2. Choose a physical disk to passthrough\n3. Configure the passthrough settings" 12 70
-if [ $? -ne 0 ]; then msg "Canceled." "$R"; exit 1; fi
-echo "DEBUG: Welcome message completed"
+if [ $? -ne 0 ]; then 
+    msg "Canceled." "$R"
+    exit 1
+fi
 
 # --- Step 1: VM Selection ---
 whiptail --title "Step 1: VM Selection" --msgbox "First, select the virtual machine that will receive the disk passthrough." 8 70
-if [ $? -ne 0 ]; then msg "Canceled." "$R"; exit 1; fi
+if [ $? -ne 0 ]; then 
+    msg "Canceled." "$R"
+    exit 1
+fi
 
 VMID=$(select_vm "Please select the VM for disk passthrough:")
-VMNAME=$(qm config "$VMID" | grep "^name:" | cut -d' ' -f2- | tr -d '"')
+VMNAME=$(qm config "$VMID" 2>/dev/null | grep "^name:" | cut -d' ' -f2- | tr -d '"')
 [ -z "$VMNAME" ] && VMNAME="Unknown"
 
 msg "Selected VM: $VMID ($VMNAME)" "$G"
 
 # Check if VM is running
-VM_STATUS=$(qm status "$VMID" | grep "^status:" | awk '{print $2}')
+VM_STATUS=$(qm status "$VMID" 2>/dev/null | grep "^status:" | awk '{print $2}')
 if [ "$VM_STATUS" == "running" ]; then
     if (whiptail --title "VM Running" --yesno "VM $VMID is currently running. The VM needs to be stopped to add disk passthrough.\n\nWould you like to stop the VM now?" 10 70); then
         msg "Stopping VM $VMID..." "$Y"
         qm stop "$VMID"
         # Wait for VM to stop
-        while [ "$(qm status "$VMID" | grep "^status:" | awk '{print $2}')" != "stopped" ]; do
+        while [ "$(qm status "$VMID" 2>/dev/null | grep "^status:" | awk '{print $2}')" != "stopped" ]; do
             sleep 2
         done
         msg "VM stopped successfully." "$G"
@@ -187,7 +166,10 @@ fi
 
 # --- Step 2: Disk Selection ---
 whiptail --title "Step 2: Disk Selection" --msgbox "Now select the physical disk you want to passthrough to the VM.\n\nWARNING: The selected disk will be directly accessed by the VM. Make sure it doesn't contain important data or is not being used by the host system." 12 70
-if [ $? -ne 0 ]; then msg "Canceled." "$R"; exit 1; fi
+if [ $? -ne 0 ]; then 
+    msg "Canceled." "$R"
+    exit 1
+fi
 
 DISK=$(select_disk "Please select the physical disk to passthrough:")
 
@@ -215,20 +197,14 @@ msg "Using SCSI controller ID: $SCSI_ID" "$G"
 
 # Configure disk passthrough
 msg "Adding disk passthrough to VM configuration..." "$Y"
-echo "DEBUG: Running command: qm set $VMID --scsi${SCSI_ID} $DISK" | tee -a "$LOGFILE"
-
-# For raw disk passthrough, use the format: /dev/diskname
-if qm set "$VMID" --scsi${SCSI_ID} "$DISK" 2>&1 | tee -a "$LOGFILE"; then
+if qm set "$VMID" --scsi${SCSI_ID} "$DISK" 2>/dev/null; then
     msg "Disk passthrough configured successfully!" "$G"
 else
-    echo "DEBUG: qm set failed, trying alternative format..." | tee -a "$LOGFILE"
-    # Try with format: --scsiX /dev/diskname,backup=0
-    if qm set "$VMID" --scsi${SCSI_ID} "${DISK},backup=0" 2>&1 | tee -a "$LOGFILE"; then
+    # Try with backup=0 option
+    if qm set "$VMID" --scsi${SCSI_ID} "${DISK},backup=0" 2>/dev/null; then
         msg "Disk passthrough configured successfully!" "$G"
     else
         msg "Failed to configure disk passthrough." "$R"
-        echo "DEBUG: Both qm set attempts failed" | tee -a "$LOGFILE"
-        echo "Please check the log file: $LOGFILE" | tee -a "$LOGFILE"
         exit 1
     fi
 fi
@@ -237,9 +213,9 @@ fi
 msg "Updating VM configuration for optimal disk performance..." "$Y"
 
 # Set SCSI controller to VirtIO SCSI if not already set
-CURRENT_SCSIHW=$(qm config "$VMID" | grep "^scsihw:" | cut -d' ' -f2)
+CURRENT_SCSIHW=$(qm config "$VMID" 2>/dev/null | grep "^scsihw:" | cut -d' ' -f2)
 if [ "$CURRENT_SCSIHW" != "virtio-scsi-pci" ]; then
-    qm set "$VMID" --scsihw virtio-scsi-pci
+    qm set "$VMID" --scsihw virtio-scsi-pci 2>/dev/null
     msg "Set SCSI controller to VirtIO SCSI for better performance." "$G"
 fi
 
@@ -247,7 +223,7 @@ fi
 START_VM="No"
 if (whiptail --title "Start VM?" --yesno "Disk passthrough configuration is complete.\n\nWould you like to start the VM now?" 10 60); then
     msg "Starting VM $VMID..." "$Y"
-    qm start "$VMID"
+    qm start "$VMID" 2>/dev/null
     START_VM="Yes"
 fi
 
