@@ -1,6 +1,12 @@
 #!/bin/bash
 
-echo "DEBUG: Script started"
+# Enable debugging and log to file
+LOGFILE="/tmp/pve_disk_passthrough_debug.log"
+exec 19>&2
+exec 2> >(tee -a "$LOGFILE")
+set -x
+
+echo "DEBUG: Script started - $(date)" | tee -a "$LOGFILE"
 
 # Color Palette
 G='\033[1;32m'
@@ -9,7 +15,8 @@ B='\033[0;34m'
 Y='\033[0;33m'
 N='\033[0m'
 
-echo "DEBUG: Color palette defined"
+echo "DEBUG: Color palette defined" | tee -a "$LOGFILE"
+echo "INFO: Debug log is being written to $LOGFILE"
 
 # --- Helper Functions ---
 
@@ -24,14 +31,16 @@ echo "DEBUG: msg function defined"
 
 # Install necessary packages if they are not installed
 install_package() {
-    echo "DEBUG: Installing package $1"
+    echo "DEBUG: Installing package $1" | tee -a "$LOGFILE"
     if ! dpkg -s "$1" &>/dev/null;
     then
         msg "Installing $1..." "$Y"
-        apt-get update >/dev/null 2>&1
-        apt-get install -y "$1" >/dev/null 2>&1
+        echo "DEBUG: Running apt-get update..." | tee -a "$LOGFILE"
+        apt-get update 2>&1 | tee -a "$LOGFILE"
+        echo "DEBUG: Running apt-get install $1..." | tee -a "$LOGFILE"
+        apt-get install -y "$1" 2>&1 | tee -a "$LOGFILE"
     fi
-    echo "DEBUG: Package $1 installation complete"
+    echo "DEBUG: Package $1 installation complete" | tee -a "$LOGFILE"
 }
 
 echo "DEBUG: install_package function defined"
