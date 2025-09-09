@@ -82,47 +82,54 @@ select_disk() {
     local prompt_text=$1
     local whiptail_options=()
 
-    # Get physical disks using lsblk and map to by-id paths
-    while IFS=$'\t' read -r device size model; do
+    # Get physical disks using lsblk and find by-id paths
+    while IFS=$'\t' read -r device size model by_ids; do
         # Skip loop devices, partitions, and mounted disks
         if [[ ! "$device" =~ ^/dev/loop ]] && [[ ! "$device" =~ [0-9]$ ]] && [[ "$device" =~ ^/dev/sd[a-z]$|^/dev/nvme[0-9]+n[0-9]+$ ]]; then
             # Check if disk is not mounted
             if ! mount | grep -q "$device"; then
-                # Find the by-id path for this device
                 local by_id_path=""
-                local device_name=$(basename "$device")
+                local display_name=$(basename "$device")
                 
-                # Look for WWN, serial, or other stable identifiers
-                for id_path in /dev/disk/by-id/*; do
-                    if [ -e "$id_path" ] && [ "$(readlink -f "$id_path")" = "$device" ]; then
-                        # Skip dm-* and md-* entries, prefer wwn- or ata- entries
-                        if [[ "$id_path" =~ wwn-|ata-|nvme-|scsi- ]] && [[ ! "$id_path" =~ -part[0-9]+$ ]]; then
+                # Find the best by-id path from the found paths
+                if [ -n "$by_ids" ]; then
+                    # Split by_ids by space and find the best one
+                    for id_path in $by_ids; do
+                        local id_basename=$(basename "$id_path")
+                        # Prefer wwn-, ata-, nvme-, scsi- over others
+                        if [[ "$id_basename" =~ ^(wwn-|ata-|nvme-|scsi-) ]]; then
                             by_id_path="$id_path"
                             break
+                        elif [ -z "$by_id_path" ] && [[ ! "$id_basename" =~ ^(dm-|md-) ]]; then
+                            by_id_path="$id_path"
                         fi
-                    fi
-                done
-                
-                # If no by-id path found, fall back to device name but show warning
-                if [ -z "$by_id_path" ]; then
-                    by_id_path="$device"
+                    done
                 fi
                 
-                # Display device name but use by-id path as value
-                local display_name=$(basename "$device")
-                whiptail_options+=("$by_id_path" "$display_name ($size $model)")
+                # If no by-id path found, fall back to device name
+                if [ -z "$by_id_path" ]; then
+                    by_id_path="$device"
+                    whiptail_options+=("$by_id_path" "$display_name ($size $model) [WARNING: No stable ID]")
+                else
+                    local id_type=$(basename "$by_id_path" | cut -d'-' -f1)
+                    whiptail_options+=("$by_id_path" "$display_name ($size $model) [$id_type ID]")
+                fi
             fi
         fi
-    done < <(lsblk -dnb -o NAME,SIZE,MODEL | awk '{printf "/dev/%s\t%s\t%s\n", $1, $2, substr($0, index($0,$3))}' | while read device size model; do
+    done < <(lsblk -dnb -o NAME,SIZE,MODEL | awk 'NR>1{
+        dev=$1; 
+        size=$2;
+        model=substr($0, index($0,$3));
         # Convert size to human readable format
-        if [ "$size" -gt 1073741824 ]; then
-            size_gb=$((size / 1073741824))
-            echo -e "$device\t${size_gb}GB\t$model"
-        else
-            size_mb=$((size / 1048576))
-            echo -e "$device\t${size_mb}MB\t$model"
-        fi
-    done)
+        if (size > 1073741824) {
+            size_human=int(size/1073741824) "GB"
+        } else {
+            size_human=int(size/1048576) "MB"
+        }
+        printf "/dev/%s\t%s\t%s\t", dev, size_human, model;
+        system("find /dev/disk/by-id -lname \"*" dev "\" -printf \" %p\"");
+        print "";
+    }' | grep -v -E 'part|lvm')
 
     if [ ${#whiptail_options[@]} -eq 0 ]; then
         whiptail --msgbox "No suitable unmounted physical disks found." 10 70
