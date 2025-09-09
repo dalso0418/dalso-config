@@ -82,13 +82,35 @@ select_disk() {
     local prompt_text=$1
     local whiptail_options=()
 
-    # Get physical disks using lsblk
+    # Get physical disks using lsblk and map to by-id paths
     while IFS=$'\t' read -r device size model; do
         # Skip loop devices, partitions, and mounted disks
         if [[ ! "$device" =~ ^/dev/loop ]] && [[ ! "$device" =~ [0-9]$ ]] && [[ "$device" =~ ^/dev/sd[a-z]$|^/dev/nvme[0-9]+n[0-9]+$ ]]; then
             # Check if disk is not mounted
             if ! mount | grep -q "$device"; then
-                whiptail_options+=("$device" "$size $model")
+                # Find the by-id path for this device
+                local by_id_path=""
+                local device_name=$(basename "$device")
+                
+                # Look for WWN, serial, or other stable identifiers
+                for id_path in /dev/disk/by-id/*; do
+                    if [ -e "$id_path" ] && [ "$(readlink -f "$id_path")" = "$device" ]; then
+                        # Skip dm-* and md-* entries, prefer wwn- or ata- entries
+                        if [[ "$id_path" =~ wwn-|ata-|nvme-|scsi- ]] && [[ ! "$id_path" =~ -part[0-9]+$ ]]; then
+                            by_id_path="$id_path"
+                            break
+                        fi
+                    fi
+                done
+                
+                # If no by-id path found, fall back to device name but show warning
+                if [ -z "$by_id_path" ]; then
+                    by_id_path="$device"
+                fi
+                
+                # Display device name but use by-id path as value
+                local display_name=$(basename "$device")
+                whiptail_options+=("$by_id_path" "$display_name ($size $model)")
             fi
         fi
     done < <(lsblk -dnb -o NAME,SIZE,MODEL | awk '{printf "/dev/%s\t%s\t%s\n", $1, $2, substr($0, index($0,$3))}' | while read device size model; do
@@ -235,10 +257,27 @@ DISK=$(select_disk "Please select the physical disk to passthrough:")
 
 # Get disk information
 DISK_INFO=$(lsblk -no SIZE,MODEL "$DISK" 2>/dev/null | head -1)
-msg "Selected disk: $DISK ($DISK_INFO)" "$G"
+# Show user-friendly disk info
+if [[ "$DISK" =~ /dev/disk/by-id/ ]]; then
+    DISK_NAME=$(basename "$DISK")
+    DEVICE_PATH=$(readlink -f "$DISK" 2>/dev/null || echo "$DISK")
+    msg "Selected disk: $(basename "$DEVICE_PATH") -> $DISK_NAME" "$G"
+    msg "Stable path: $DISK" "$B"
+else
+    msg "Selected disk: $DISK ($DISK_INFO)" "$G"
+fi
 
 # Confirmation
-if ! whiptail --title "Confirmation" --yesno "You are about to passthrough the following disk to VM $VMID:\n\nDisk: $DISK\nBus Type: $BUS_NAME\nInfo: $DISK_INFO\nVM: $VMID ($VMNAME)\n\nThis will give the VM direct access to this physical disk.\n\nDo you want to continue?" 16 70; then
+CONFIRM_TEXT="You are about to passthrough the following disk to VM $VMID:\n\n"
+if [[ "$DISK" =~ /dev/disk/by-id/ ]]; then
+    CONFIRM_TEXT+="Physical Device: $(basename "$(readlink -f "$DISK" 2>/dev/null || echo "$DISK")")\n"
+    CONFIRM_TEXT+="Stable ID: $(basename "$DISK")\n"
+else
+    CONFIRM_TEXT+="Disk: $DISK\n"
+fi
+CONFIRM_TEXT+="Bus Type: $BUS_NAME\nInfo: $DISK_INFO\nVM: $VMID ($VMNAME)\n\nThis will give the VM direct access to this physical disk.\n\nDo you want to continue?"
+
+if ! whiptail --title "Confirmation" --yesno "$CONFIRM_TEXT" 18 80; then
     msg "Operation canceled by user." "$Y"
     exit 0
 fi
