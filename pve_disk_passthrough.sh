@@ -2,11 +2,7 @@
 
 # Enable debugging and log to file
 LOGFILE="/tmp/pve_disk_passthrough_debug.log"
-exec 19>&2
-exec 2> >(tee -a "$LOGFILE")
-set -x
-
-echo "DEBUG: Script started - $(date)" | tee -a "$LOGFILE"
+echo "DEBUG: Script started - $(date)" > "$LOGFILE"
 
 # Color Palette
 G='\033[1;32m'
@@ -60,15 +56,12 @@ select_vm() {
     local prompt_text=$1
     local whiptail_options=()
 
-    # Debug: Show qm list output
+    # Get VM list
     msg "Getting VM list..." "$Y"
     local vm_list_output=$(qm list 2>&1)
-    echo "DEBUG - qm list output:"
-    echo "$vm_list_output"
-    echo "DEBUG - End of qm list output"
+    echo "DEBUG: qm list executed" | tee -a "$LOGFILE"
 
     while read -r line; do
-        echo "DEBUG - Processing line: [$line]"
         # Skip header line
         if [[ "$line" =~ ^VMID ]]; then
             continue
@@ -78,12 +71,12 @@ select_vm() {
             vmid=$(echo "$line" | awk '{print $1}')
             name=$(echo "$line" | awk '{print $2}')
             status=$(echo "$line" | awk '{print $3}')
-            echo "DEBUG - Found VM: $vmid, $name, $status"
+            echo "DEBUG: Found VM: $vmid, $name, $status" | tee -a "$LOGFILE"
             whiptail_options+=("$vmid" "$name ($status)")
         fi
     done <<< "$vm_list_output"
 
-    echo "DEBUG - Total VMs found: ${#whiptail_options[@]}"
+    echo "DEBUG: Total VMs found: ${#whiptail_options[@]}" | tee -a "$LOGFILE"
 
     if [ ${#whiptail_options[@]} -eq 0 ]; then
         whiptail --msgbox "No VMs found on this node.\n\nDebug info:\n$vm_list_output" 15 80
@@ -222,11 +215,22 @@ msg "Using SCSI controller ID: $SCSI_ID" "$G"
 
 # Configure disk passthrough
 msg "Adding disk passthrough to VM configuration..." "$Y"
-if qm set "$VMID" --scsi${SCSI_ID} "$DISK"; then
+echo "DEBUG: Running command: qm set $VMID --scsi${SCSI_ID} $DISK" | tee -a "$LOGFILE"
+
+# For raw disk passthrough, use the format: /dev/diskname
+if qm set "$VMID" --scsi${SCSI_ID} "$DISK" 2>&1 | tee -a "$LOGFILE"; then
     msg "Disk passthrough configured successfully!" "$G"
 else
-    msg "Failed to configure disk passthrough." "$R"
-    exit 1
+    echo "DEBUG: qm set failed, trying alternative format..." | tee -a "$LOGFILE"
+    # Try with format: --scsiX /dev/diskname,backup=0
+    if qm set "$VMID" --scsi${SCSI_ID} "${DISK},backup=0" 2>&1 | tee -a "$LOGFILE"; then
+        msg "Disk passthrough configured successfully!" "$G"
+    else
+        msg "Failed to configure disk passthrough." "$R"
+        echo "DEBUG: Both qm set attempts failed" | tee -a "$LOGFILE"
+        echo "Please check the log file: $LOGFILE" | tee -a "$LOGFILE"
+        exit 1
+    fi
 fi
 
 # --- Step 4: Final Configuration ---
