@@ -116,6 +116,21 @@ get_next_scsi_id() {
     echo "-1"  # No available slots
 }
 
+# Get available SATA controllers for the VM
+get_next_sata_id() {
+    local vmid=$1
+    local used_ids=$(qm config "$vmid" 2>/dev/null | grep -E '^sata[0-9]+:' | sed 's/^sata\([0-9]\+\):.*/\1/' | sort -n)
+    
+    for i in {0..5}; do
+        if ! echo "$used_ids" | grep -q "^$i$"; then
+            echo "$i"
+            return
+        fi
+    done
+    
+    echo "-1"  # No available slots
+}
+
 # --- Main Logic ---
 
 # Check for root privileges
@@ -164,8 +179,40 @@ if [ "$VM_STATUS" == "running" ]; then
     fi
 fi
 
-# --- Step 2: Disk Selection ---
-whiptail --title "Step 2: Disk Selection" --msgbox "Now select the physical disk you want to passthrough to the VM.\n\nWARNING: The selected disk will be directly accessed by the VM. Make sure it doesn't contain important data or is not being used by the host system." 12 70
+# --- Step 2: Disk Bus Type Selection ---
+whiptail --title "Step 2: Disk Bus Type" --msgbox "Select the disk bus type for the passthrough disk.\n\nSCSI: Better performance, supports more devices\nSATA: Better compatibility, native SATA interface" 10 70
+if [ $? -ne 0 ]; then 
+    msg "Canceled." "$R"
+    exit 1
+fi
+
+BUS_CHOICE=$(whiptail --title "Disk Bus Type" --menu "Select the disk bus type for the passthrough disk:" 15 60 2 \
+"1" "SCSI (VirtIO SCSI)" \
+"2" "SATA (Native SATA)" 3>&1 1>&2 2>&3)
+if [ $? -ne 0 ]; then 
+    msg "Canceled." "$R"
+    exit 1
+fi
+
+case $BUS_CHOICE in
+    1) 
+        BUS_TYPE="scsi"
+        BUS_NAME="SCSI"
+        ;;
+    2) 
+        BUS_TYPE="sata"
+        BUS_NAME="SATA"
+        ;;
+    *) 
+        msg "Invalid choice. Exiting." "$R"
+        exit 1
+        ;;
+esac
+
+msg "Selected bus type: $BUS_NAME" "$G"
+
+# --- Step 3: Disk Selection ---
+whiptail --title "Step 3: Disk Selection" --msgbox "Now select the physical disk you want to passthrough to the VM.\n\nWARNING: The selected disk will be directly accessed by the VM. Make sure it doesn't contain important data or is not being used by the host system." 12 70
 if [ $? -ne 0 ]; then 
     msg "Canceled." "$R"
     exit 1
@@ -178,30 +225,37 @@ DISK_INFO=$(lsblk -no SIZE,MODEL "$DISK" 2>/dev/null | head -1)
 msg "Selected disk: $DISK ($DISK_INFO)" "$G"
 
 # Confirmation
-if ! (whiptail --title "Confirmation" --yesno "You are about to passthrough the following disk to VM $VMID:\n\nDisk: $DISK\nInfo: $DISK_INFO\nVM: $VMID ($VMNAME)\n\nThis will give the VM direct access to this physical disk.\n\nDo you want to continue?" 15 70); then
+if ! (whiptail --title "Confirmation" --yesno "You are about to passthrough the following disk to VM $VMID:\n\nDisk: $DISK\nBus Type: $BUS_NAME\nInfo: $DISK_INFO\nVM: $VMID ($VMNAME)\n\nThis will give the VM direct access to this physical disk.\n\nDo you want to continue?" 16 70); then
     msg "Operation canceled by user." "$Y"
     exit 0
 fi
 
-# --- Step 3: Passthrough Configuration ---
-msg "Step 3: Configuring disk passthrough..." "$Y"
+# --- Step 4: Passthrough Configuration ---
+msg "Step 4: Configuring disk passthrough..." "$Y"
 
-# Get next available SCSI ID
-SCSI_ID=$(get_next_scsi_id "$VMID")
-if [ "$SCSI_ID" == "-1" ]; then
-    msg "No available SCSI controller slots found for VM $VMID." "$R"
+# Get next available controller ID based on bus type
+if [ "$BUS_TYPE" == "scsi" ]; then
+    CONTROLLER_ID=$(get_next_scsi_id "$VMID")
+    CONTROLLER_TYPE="SCSI"
+else
+    CONTROLLER_ID=$(get_next_sata_id "$VMID")
+    CONTROLLER_TYPE="SATA"
+fi
+
+if [ "$CONTROLLER_ID" == "-1" ]; then
+    msg "No available $CONTROLLER_TYPE controller slots found for VM $VMID." "$R"
     exit 1
 fi
 
-msg "Using SCSI controller ID: $SCSI_ID" "$G"
+msg "Using $CONTROLLER_TYPE controller ID: $CONTROLLER_ID" "$G"
 
 # Configure disk passthrough
 msg "Adding disk passthrough to VM configuration..." "$Y"
-if qm set "$VMID" --scsi${SCSI_ID} "$DISK" 2>/dev/null; then
+if qm set "$VMID" --${BUS_TYPE}${CONTROLLER_ID} "$DISK" 2>/dev/null; then
     msg "Disk passthrough configured successfully!" "$G"
 else
     # Try with backup=0 option
-    if qm set "$VMID" --scsi${SCSI_ID} "${DISK},backup=0" 2>/dev/null; then
+    if qm set "$VMID" --${BUS_TYPE}${CONTROLLER_ID} "${DISK},backup=0" 2>/dev/null; then
         msg "Disk passthrough configured successfully!" "$G"
     else
         msg "Failed to configure disk passthrough." "$R"
@@ -209,14 +263,21 @@ else
     fi
 fi
 
-# --- Step 4: Final Configuration ---
-msg "Updating VM configuration for optimal disk performance..." "$Y"
+# --- Step 5: Final Configuration ---
+msg "Step 5: Updating VM configuration for optimal performance..." "$Y"
 
-# Set SCSI controller to VirtIO SCSI if not already set
-CURRENT_SCSIHW=$(qm config "$VMID" 2>/dev/null | grep "^scsihw:" | cut -d' ' -f2)
-if [ "$CURRENT_SCSIHW" != "virtio-scsi-pci" ]; then
-    qm set "$VMID" --scsihw virtio-scsi-pci 2>/dev/null
-    msg "Set SCSI controller to VirtIO SCSI for better performance." "$G"
+# Set appropriate controller for better performance
+if [ "$BUS_TYPE" == "scsi" ]; then
+    # Set SCSI controller to VirtIO SCSI if not already set
+    CURRENT_SCSIHW=$(qm config "$VMID" 2>/dev/null | grep "^scsihw:" | cut -d' ' -f2)
+    if [ "$CURRENT_SCSIHW" != "virtio-scsi-pci" ]; then
+        qm set "$VMID" --scsihw virtio-scsi-pci 2>/dev/null
+        msg "Set SCSI controller to VirtIO SCSI for better performance." "$G"
+    fi
+    CONTROLLER_HARDWARE="virtio-scsi-pci"
+else
+    # SATA doesn't need special controller setup
+    CONTROLLER_HARDWARE="AHCI (native)"
 fi
 
 # Ask about starting VM
@@ -235,8 +296,9 @@ msg "VM ID: $VMID" "$G"
 msg "VM Name: $VMNAME" "$G"
 msg "Passthrough Disk: $DISK" "$G"
 msg "Disk Info: $DISK_INFO" "$G"
-msg "SCSI Controller: scsi$SCSI_ID" "$G"
-msg "SCSI Hardware: virtio-scsi-pci" "$G"
+msg "Bus Type: $BUS_NAME" "$G"
+msg "Controller: ${BUS_TYPE}${CONTROLLER_ID}" "$G"
+msg "Controller Hardware: $CONTROLLER_HARDWARE" "$G"
 msg "VM Started: $START_VM" "$G"
 msg "--------------------------------" "$B"
 msg "The physical disk is now directly accessible from the VM." "$Y"
