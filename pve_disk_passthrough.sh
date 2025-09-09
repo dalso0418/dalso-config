@@ -1,11 +1,15 @@
 #!/bin/bash
 
+echo "DEBUG: Script started"
+
 # Color Palette
 G='\033[1;32m'
 R='\033[0;31m'
 B='\033[0;34m'
 Y='\033[0;33m'
 N='\033[0m'
+
+echo "DEBUG: Color palette defined"
 
 # --- Helper Functions ---
 
@@ -16,20 +20,29 @@ msg() {
     echo -e "${color}${text}${N}"
 }
 
+echo "DEBUG: msg function defined"
+
 # Install necessary packages if they are not installed
 install_package() {
+    echo "DEBUG: Installing package $1"
     if ! dpkg -s "$1" &>/dev/null;
     then
         msg "Installing $1..." "$Y"
-        apt-get update >/dev/null
-        apt-get install -y "$1" >/dev/null
+        apt-get update >/dev/null 2>&1
+        apt-get install -y "$1" >/dev/null 2>&1
     fi
+    echo "DEBUG: Package $1 installation complete"
 }
 
-# Install jq if not available
+echo "DEBUG: install_package function defined"
+
+# Install packages
+echo "DEBUG: Starting package installation"
 install_package "jq"
 install_package "curl"
+install_package "whiptail"
 JQ_CMD=$(which jq)
+echo "DEBUG: All packages installed"
 
 # --- Proxmox API Functions using whiptail ---
 
@@ -127,18 +140,21 @@ get_next_scsi_id() {
 
 # --- Main Logic ---
 
+echo "DEBUG: Starting main logic"
+
 # Check for root privileges
+echo "DEBUG: Checking root privileges"
 if [ "$(id -u)" -ne 0 ]; then
     msg "This script must be run as root." "$R"
     exit 1
 fi
-
-# Install dependencies
-install_package "whiptail"
+echo "DEBUG: Root check passed"
 
 # Welcome message
+echo "DEBUG: Showing welcome message"
 whiptail --title "Proxmox Disk Passthrough Setup" --msgbox "This script will help you configure disk passthrough for a Proxmox VM.\n\nYou will:\n1. Select a VM\n2. Choose a physical disk to passthrough\n3. Configure the passthrough settings" 12 70
 if [ $? -ne 0 ]; then msg "Canceled." "$R"; exit 1; fi
+echo "DEBUG: Welcome message completed"
 
 # --- Step 1: VM Selection ---
 whiptail --title "Step 1: VM Selection" --msgbox "First, select the virtual machine that will receive the disk passthrough." 8 70
