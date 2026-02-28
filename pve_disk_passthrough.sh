@@ -118,7 +118,7 @@ select_disk() {
                 fi
             fi
         fi
-    done < <(lsblk -dnb -o NAME,SIZE,MODEL | awk 'NR>1{
+    done < <(lsblk -dnb -o NAME,SIZE,MODEL | awk '{
         dev=$1; 
         size=$2;
         model=substr($0, index($0,$3));
