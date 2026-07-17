@@ -8,8 +8,8 @@ Y='\033[0;33m'
 N='\033[0m'
 
 BACKTITLE="Xpenology VM Installer for Proxmox VE"
-STEP_TOTAL=5
-# CURRENT_STEP is set by the main loop (1-based) so wrappers can render "Step N/5".
+STEP_TOTAL=6
+# CURRENT_STEP is set by the main loop (1-based) so wrappers can render "Step N/6".
 CURRENT_STEP=1
 
 # --- i18n ---
@@ -30,6 +30,7 @@ declare -A MSG_en=(
     [core_cores_prompt]="Enter CPU Cores"
     [core_ram_prompt]="Enter RAM in MB"
     [err_vmid_empty]="VM ID cannot be empty."
+    [err_vmid]="VM ID must be an integer."
     [err_vmname_empty]="VM Name cannot be empty."
     [err_cores]="Invalid number of cores."
     [err_ram]="Invalid RAM size."
@@ -64,6 +65,10 @@ declare -A MSG_en=(
     [boot_net_err_body]="Could not reach GitHub to resolve the latest version. Check connectivity and retry."
     [boot_empty_tag]="Empty version tag resolved."
     [boot_url_err]="Could not build download URL."
+    [createSerial]="Would you like to add a virtual serial port?"
+    [createSerialDesc]="If an issue occurs, you can easily troubleshoot it by connecting with xterm.js."
+    [serial_yes]="Added"
+    [serial_no]="Not added"
     [sec_review]="Review & Create"
     [review_prompt]="Review your configuration, then create the VM:"
     [review_create]="==> Create VM now <=="
@@ -75,6 +80,9 @@ declare -A MSG_en=(
     [rev_storage]="Storage"
     [rev_bridge]="Network Bridge"
     [rev_bootloader]="Bootloader"
+    [rev_serial]="Virtual Serial Port"
+    [serial_enabled]="Enabled"
+    [serial_disabled]="Disabled"
     [storage_line_virtual]="virtual %sG on %s"
     [storage_line_passthrough]="passthrough (%s disk(s))"
     [pt_create_guard_title]="No data disk"
@@ -92,6 +100,7 @@ declare -A MSG_en=(
     [vm_create_failed]="VM creation failed."
     [disk_attach_failed]="Failed to attach data disk."
     [pt_attach_failed]="Failed to pass through disk: %s"
+    [serial_attach_failed]="Failed to add the virtual serial port."
     [rollback_title]="Rollback"
     [rollback_body]="Destroy partially-created VM %s?"
     [status_started]="Started"
@@ -105,6 +114,7 @@ declare -A MSG_en=(
     [sum_bus]="Disk Bus: %s"
     [sum_network]="Network: %s"
     [sum_bootloader]="Bootloader: %s %s (attached from %s)"
+    [sum_serial]="Virtual Serial Port: %s"
     [sum_data_passthrough]="Data Disks (passthrough):"
     [sum_disk_item]="  - %s"
     [sum_data_virtual]="Data Disk: %sG on %s"
@@ -129,6 +139,7 @@ declare -A MSG_ko=(
     [core_cores_prompt]="CPU 코어 수를 입력하세요"
     [core_ram_prompt]="RAM 용량(MB)을 입력하세요"
     [err_vmid_empty]="VM ID는 비워둘 수 없습니다."
+    [err_vmid]="VM ID는 정수로 입력해야 합니다."
     [err_vmname_empty]="VM 이름은 비워둘 수 없습니다."
     [err_cores]="잘못된 코어 수입니다."
     [err_ram]="잘못된 RAM 용량입니다."
@@ -163,6 +174,10 @@ declare -A MSG_ko=(
     [boot_net_err_body]="GitHub에 접속해 최신 버전을 확인할 수 없습니다. 연결을 확인하고 다시 시도하세요."
     [boot_empty_tag]="확인된 버전 태그가 비어 있습니다."
     [boot_url_err]="다운로드 URL을 생성할 수 없습니다."
+    [createSerial]="가상 시리얼 포트를 추가할까요?"
+    [createSerialDesc]="문제 발생 시 xterm.js로 접속하여 쉽게 확인할 수 있습니다."
+    [serial_yes]="추가함"
+    [serial_no]="추가 안 함"
     [sec_review]="검토 및 생성"
     [review_prompt]="설정을 검토한 뒤 VM을 생성하세요:"
     [review_create]="==> 지금 VM 생성 <=="
@@ -174,6 +189,9 @@ declare -A MSG_ko=(
     [rev_storage]="스토리지"
     [rev_bridge]="네트워크 브리지"
     [rev_bootloader]="부트로더"
+    [rev_serial]="가상 시리얼 포트"
+    [serial_enabled]="사용"
+    [serial_disabled]="사용 안 함"
     [storage_line_virtual]="가상 %sG (%s)"
     [storage_line_passthrough]="패스스루 (%s개 디스크)"
     [pt_create_guard_title]="데이터 디스크 없음"
@@ -191,6 +209,7 @@ declare -A MSG_ko=(
     [vm_create_failed]="VM 생성에 실패했습니다."
     [disk_attach_failed]="데이터 디스크 연결에 실패했습니다."
     [pt_attach_failed]="디스크 패스스루에 실패했습니다: %s"
+    [serial_attach_failed]="가상 시리얼 포트 추가에 실패했습니다."
     [rollback_title]="롤백"
     [rollback_body]="부분 생성된 VM %s을(를) 삭제할까요?"
     [status_started]="시작됨"
@@ -204,6 +223,7 @@ declare -A MSG_ko=(
     [sum_bus]="디스크 버스: %s"
     [sum_network]="네트워크: %s"
     [sum_bootloader]="부트로더: %s %s (%s에서 연결)"
+    [sum_serial]="가상 시리얼 포트: %s"
     [sum_data_passthrough]="데이터 디스크 (패스스루):"
     [sum_disk_item]="  - %s"
     [sum_data_virtual]="데이터 디스크: %sG (%s)"
@@ -477,14 +497,20 @@ download_with_gauge() {
 # --- Step functions: rc 0=next, 1=back, 2=cancel, 100=redisplay ---
 
 step_core() {
-    VMID=$(wt_input "$(t sec_core)" "$(t core_vmid_prompt)" "${VMID:-$(pvesh get /cluster/nextid)}") || return $?
-    [ -n "$VMID" ] || { wt_msg "$(t err_title)" "$(t err_vmid_empty)"; return 100; }
-    VMNAME=$(wt_input "$(t sec_core)" "$(t core_vmname_prompt)" "${VMNAME:-Xpenology}") || return $?
-    [ -n "$VMNAME" ] || { wt_msg "$(t err_title)" "$(t err_vmname_empty)"; return 100; }
-    CORES=$(wt_input "$(t sec_core)" "$(t core_cores_prompt)" "${CORES:-2}") || return $?
-    [[ "$CORES" =~ ^[0-9]+$ ]] || { wt_msg "$(t err_title)" "$(t err_cores)"; return 100; }
-    RAM=$(wt_input "$(t sec_core)" "$(t core_ram_prompt)" "${RAM:-4096}") || return $?
-    [[ "$RAM" =~ ^[0-9]+$ ]] || { wt_msg "$(t err_title)" "$(t err_ram)"; return 100; }
+    local new_vmid new_vmname new_cores new_ram
+    new_vmid=$(wt_input "$(t sec_core)" "$(t core_vmid_prompt)" "${VMID:-$(pvesh get /cluster/nextid)}") || return $?
+    [ -n "$new_vmid" ] || { wt_msg "$(t err_title)" "$(t err_vmid_empty)"; return 100; }
+    [[ "$new_vmid" =~ ^[0-9]+$ ]] || { wt_msg "$(t err_title)" "$(t err_vmid)"; return 100; }
+    new_vmname=$(wt_input "$(t sec_core)" "$(t core_vmname_prompt)" "${VMNAME:-Xpenology}") || return $?
+    [ -n "$new_vmname" ] || { wt_msg "$(t err_title)" "$(t err_vmname_empty)"; return 100; }
+    new_cores=$(wt_input "$(t sec_core)" "$(t core_cores_prompt)" "${CORES:-2}") || return $?
+    [[ "$new_cores" =~ ^[0-9]+$ ]] || { wt_msg "$(t err_title)" "$(t err_cores)"; return 100; }
+    new_ram=$(wt_input "$(t sec_core)" "$(t core_ram_prompt)" "${RAM:-4096}") || return $?
+    [[ "$new_ram" =~ ^[0-9]+$ ]] || { wt_msg "$(t err_title)" "$(t err_ram)"; return 100; }
+    VMID="$new_vmid"
+    VMNAME="$new_vmname"
+    CORES="$new_cores"
+    RAM="$new_ram"
     return 0
 }
 
@@ -578,13 +604,39 @@ step_bootloader() {
     return 0
 }
 
+step_serial() {
+    local default_choice choice rc
+    case "$CREATE_SERIAL" in
+        0) default_choice="no" ;;
+        *) default_choice="yes" ;;
+    esac
+    choice=$(whiptail --backtitle "$BACKTITLE" --title "$(_wt_title "$(t createSerial)")" \
+        --cancel-button "$(_wt_cancel_label)" --default-item "$default_choice" --notags \
+        --menu "$(t createSerialDesc)" 20 78 10 \
+        "yes" "$(t serial_yes)" \
+        "no"  "$(t serial_no)" 3>&1 1>&2 2>&3)
+    rc=$?
+    case $rc in 0) ;; 1) return 1 ;; *) return 2 ;; esac
+    case "$choice" in
+        yes) CREATE_SERIAL=1 ;;
+        no)  CREATE_SERIAL=0 ;;
+        *) return 100 ;;
+    esac
+    return 0
+}
+
 step_confirm() {
-    local choice storage_line
+    local choice storage_line serial_line
     while true; do
         if [ "$STORAGE_MODE" = "passthrough" ]; then
             storage_line="$(t rev_storage): $(tf storage_line_passthrough "${#PASSTHRU_DISKS[@]}")"
         else
             storage_line="$(t rev_storage): $(tf storage_line_virtual "$DISK_SIZE" "$DATA_STORAGE")"
+        fi
+        if (( CREATE_SERIAL )); then
+            serial_line="$(t rev_serial): $(t serial_enabled)"
+        else
+            serial_line="$(t rev_serial): $(t serial_disabled)"
         fi
         choice=$(whiptail --backtitle "$BACKTITLE" --title "$(_wt_title "$(t sec_review)")" \
             --cancel-button "$(t btn_back)" \
@@ -598,10 +650,16 @@ step_confirm() {
             "STORAGE" "$storage_line" \
             "BRIDGE"  "$(t rev_bridge): ${BRIDGE}" \
             "BOOT"    "$(t rev_bootloader): ${IMAGE_NAME} ${IMG_TAG}" \
+            "SERIAL"  "$serial_line" \
             3>&1 1>&2 2>&3)
         case $? in 0) ;; 255) return 2 ;; *) return 1 ;; esac
         case "$choice" in
             create)
+                if ! [[ "$VMID" =~ ^[0-9]+$ ]]; then
+                    wt_msg "$(t err_title)" "$(t err_vmid)"
+                    step_core
+                    continue
+                fi
                 if [ "$STORAGE_MODE" = "passthrough" ] && (( ${#PASSTHRU_DISKS[@]} == 0 )); then
                     wt_msg "$(t pt_create_guard_title)" "$(t pt_create_guard_body)"
                     continue
@@ -612,6 +670,7 @@ step_confirm() {
             BUS|STORAGE)           step_storage ;;
             BRIDGE)                step_network ;;
             BOOT)                  step_bootloader ;;
+            SERIAL)                step_serial ;;
         esac
     done
 }
@@ -678,6 +737,10 @@ prepare_bootloader() {
 
 # Create + configure the VM. Offers rollback on failure.
 create_vm() {
+    if ! [[ "$VMID" =~ ^[0-9]+$ ]]; then
+        wt_msg "$(t err_title)" "$(t err_vmid)"
+        return 1
+    fi
     wt_infobox "$(t sec_review)" "$(tf creating_vm "$VMID")"
     if ! qm create "$VMID" --name "$VMNAME" --memory "$RAM" --cores "$CORES" --bios seabios --ostype l26; then
         rollback "$(t vm_create_failed)"; exit 1
@@ -695,6 +758,9 @@ create_vm() {
         if ! qm set "$VMID" --"${BUS_TYPE_PARAM}0" "${DATA_STORAGE}:${DISK_SIZE},discard=on,ssd=1"; then
             rollback "$(t disk_attach_failed)"; exit 1
         fi
+    fi
+    if (( CREATE_SERIAL )) && ! qm set "$VMID" --serial0 socket; then
+        rollback "$(t serial_attach_failed)"; exit 1
     fi
     qm set "$VMID" --net0 virtio,bridge="$BRIDGE"
     local qm_args="-drive if=none,id=synoboot,format=raw,file=${IMG_PATH} -device qemu-xhci,id=xhci -device usb-storage,bus=xhci.0,drive=synoboot,bootindex=0"
@@ -726,6 +792,11 @@ print_summary() {
     msg "$(tf sum_bus "$BUS_TYPE_PARAM")" "$G"
     msg "$(tf sum_network "$BRIDGE")" "$G"
     msg "$(tf sum_bootloader "$IMAGE_NAME" "$IMG_TAG" "$IMG_PATH")" "$G"
+    if (( CREATE_SERIAL )); then
+        msg "$(tf sum_serial "$(t serial_enabled)")" "$G"
+    else
+        msg "$(tf sum_serial "$(t serial_disabled)")" "$G"
+    fi
     if [ "$STORAGE_MODE" = "passthrough" ]; then
         msg "$(t sum_data_passthrough)" "$G"
         local d
@@ -750,11 +821,12 @@ main() {
     LANG_CHOICE="en"
     BACKTITLE="$(t backtitle)"
     STORAGE_MODE="virtual"; PASSTHRU_DISKS=()
+    CREATE_SERIAL=1
     trap cleanup EXIT
     trap 'exit 130' INT TERM
     pick_language
 
-    local steps=(step_core step_storage step_network step_bootloader step_confirm)
+    local steps=(step_core step_storage step_network step_bootloader step_serial step_confirm)
     local i=0
     while (( i >= 0 && i < ${#steps[@]} )); do
         CURRENT_STEP=$(( i + 1 ))
