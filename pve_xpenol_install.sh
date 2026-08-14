@@ -8,8 +8,8 @@ Y='\033[0;33m'
 N='\033[0m'
 
 BACKTITLE="Xpenology VM Installer for Proxmox VE"
-STEP_TOTAL=6
-# CURRENT_STEP is set by the main loop (1-based) so wrappers can render "Step N/6".
+STEP_TOTAL=7
+# CURRENT_STEP is set by the main loop (1-based) so wrappers can render "Step N/7".
 CURRENT_STEP=1
 
 # --- i18n ---
@@ -65,6 +65,12 @@ declare -A MSG_en=(
     [boot_net_err_body]="Could not reach GitHub to resolve the latest version. Check connectivity and retry."
     [boot_empty_tag]="Empty version tag resolved."
     [boot_url_err]="Could not build download URL."
+    [sec_firmware]="Firmware"
+    [firmware_prompt]="Select the VM firmware type."
+    [firmware_seabios]="SeaBIOS + i440fx"
+    [firmware_ovmf]="OVMF (UEFI) + Q35 — Modern hardware compatibility and UEFI boot support"
+    [efi_storage_prompt]="Select storage for the EFI disk."
+    [err_efi_storage]="EFI disk storage must be selected for OVMF."
     [createSerial]="Would you like to add a virtual serial port?"
     [createSerialDesc]="If an issue occurs, you can easily troubleshoot it by connecting with xterm.js."
     [serial_yes]="Added"
@@ -80,11 +86,14 @@ declare -A MSG_en=(
     [rev_storage]="Storage"
     [rev_bridge]="Network Bridge"
     [rev_bootloader]="Bootloader"
+    [rev_firmware]="Firmware"
     [rev_serial]="Virtual Serial Port"
     [serial_enabled]="Enabled"
     [serial_disabled]="Disabled"
     [storage_line_virtual]="virtual %sG on %s"
     [storage_line_passthrough]="passthrough (%s disk(s))"
+    [firmware_line_seabios]="SeaBIOS + i440fx"
+    [firmware_line_ovmf]="OVMF (UEFI) / Q35, EFI disk on %s"
     [pt_create_guard_title]="No data disk"
     [pt_create_guard_body]="Passthrough mode is selected but no physical disks are chosen. Edit Storage to pick disk(s), or switch to a virtual disk."
     [dl_label]="Downloading %s %s..."
@@ -101,6 +110,7 @@ declare -A MSG_en=(
     [disk_attach_failed]="Failed to attach data disk."
     [pt_attach_failed]="Failed to pass through disk: %s"
     [serial_attach_failed]="Failed to add the virtual serial port."
+    [efi_attach_failed]="Failed to add the EFI disk."
     [rollback_title]="Rollback"
     [rollback_body]="Destroy partially-created VM %s?"
     [status_started]="Started"
@@ -114,6 +124,7 @@ declare -A MSG_en=(
     [sum_bus]="Disk Bus: %s"
     [sum_network]="Network: %s"
     [sum_bootloader]="Bootloader: %s %s (attached from %s)"
+    [sum_firmware]="Firmware: %s"
     [sum_serial]="Virtual Serial Port: %s"
     [sum_data_passthrough]="Data Disks (passthrough):"
     [sum_disk_item]="  - %s"
@@ -174,6 +185,12 @@ declare -A MSG_ko=(
     [boot_net_err_body]="GitHub에 접속해 최신 버전을 확인할 수 없습니다. 연결을 확인하고 다시 시도하세요."
     [boot_empty_tag]="확인된 버전 태그가 비어 있습니다."
     [boot_url_err]="다운로드 URL을 생성할 수 없습니다."
+    [sec_firmware]="펌웨어"
+    [firmware_prompt]="VM의 펌웨어 유형을 선택하세요."
+    [firmware_seabios]="SeaBIOS + i440fx"
+    [firmware_ovmf]="OVMF (UEFI) + Q35 — 최신 하드웨어 호환성과 UEFI 부팅 지원"
+    [efi_storage_prompt]="EFI 디스크를 저장할 스토리지를 선택하세요."
+    [err_efi_storage]="OVMF를 사용하려면 EFI 디스크 스토리지를 선택해야 합니다."
     [createSerial]="가상 시리얼 포트를 추가할까요?"
     [createSerialDesc]="문제 발생 시 xterm.js로 접속하여 쉽게 확인할 수 있습니다."
     [serial_yes]="추가함"
@@ -189,11 +206,14 @@ declare -A MSG_ko=(
     [rev_storage]="스토리지"
     [rev_bridge]="네트워크 브리지"
     [rev_bootloader]="부트로더"
+    [rev_firmware]="펌웨어"
     [rev_serial]="가상 시리얼 포트"
     [serial_enabled]="사용"
     [serial_disabled]="사용 안 함"
     [storage_line_virtual]="가상 %sG (%s)"
     [storage_line_passthrough]="패스스루 (%s개 디스크)"
+    [firmware_line_seabios]="SeaBIOS + i440fx"
+    [firmware_line_ovmf]="OVMF (UEFI) / Q35, EFI 디스크: %s"
     [pt_create_guard_title]="데이터 디스크 없음"
     [pt_create_guard_body]="패스스루 모드인데 선택된 물리 디스크가 없습니다. 스토리지를 수정해 디스크를 선택하거나 가상 디스크로 전환하세요."
     [dl_label]="%s %s 다운로드 중..."
@@ -210,6 +230,7 @@ declare -A MSG_ko=(
     [disk_attach_failed]="데이터 디스크 연결에 실패했습니다."
     [pt_attach_failed]="디스크 패스스루에 실패했습니다: %s"
     [serial_attach_failed]="가상 시리얼 포트 추가에 실패했습니다."
+    [efi_attach_failed]="EFI 디스크 추가에 실패했습니다."
     [rollback_title]="롤백"
     [rollback_body]="부분 생성된 VM %s을(를) 삭제할까요?"
     [status_started]="시작됨"
@@ -223,6 +244,7 @@ declare -A MSG_ko=(
     [sum_bus]="디스크 버스: %s"
     [sum_network]="네트워크: %s"
     [sum_bootloader]="부트로더: %s %s (%s에서 연결)"
+    [sum_firmware]="펌웨어: %s"
     [sum_serial]="가상 시리얼 포트: %s"
     [sum_data_passthrough]="데이터 디스크 (패스스루):"
     [sum_disk_item]="  - %s"
@@ -604,6 +626,31 @@ step_bootloader() {
     return 0
 }
 
+step_firmware() {
+    local default_choice choice selected_storage
+    case "$FIRMWARE_MODE" in
+        ovmf) default_choice="ovmf" ;;
+        *)    default_choice="seabios" ;;
+    esac
+    choice=$(wt_menu "$(t sec_firmware)" "$(t firmware_prompt)" "$default_choice" \
+        "seabios" "$(t firmware_seabios)" \
+        "ovmf"    "$(t firmware_ovmf)") || return $?
+    case "$choice" in
+        seabios)
+            FIRMWARE_MODE="seabios"
+            EFI_STORAGE=""
+            ;;
+        ovmf)
+            selected_storage=$(select_storage "$(t efi_storage_prompt)" "images" "${EFI_STORAGE:-$DATA_STORAGE}")
+            case $? in 0) ;; 1) return 1 ;; 2) return 2 ;; *) return 100 ;; esac
+            FIRMWARE_MODE="ovmf"
+            EFI_STORAGE="$selected_storage"
+            ;;
+        *) return 100 ;;
+    esac
+    return 0
+}
+
 step_serial() {
     local default_choice choice rc
     case "$CREATE_SERIAL" in
@@ -626,12 +673,17 @@ step_serial() {
 }
 
 step_confirm() {
-    local choice storage_line serial_line
+    local choice storage_line firmware_line serial_line
     while true; do
         if [ "$STORAGE_MODE" = "passthrough" ]; then
             storage_line="$(t rev_storage): $(tf storage_line_passthrough "${#PASSTHRU_DISKS[@]}")"
         else
             storage_line="$(t rev_storage): $(tf storage_line_virtual "$DISK_SIZE" "$DATA_STORAGE")"
+        fi
+        if [ "$FIRMWARE_MODE" = "ovmf" ]; then
+            firmware_line="$(t rev_firmware): $(tf firmware_line_ovmf "$EFI_STORAGE")"
+        else
+            firmware_line="$(t rev_firmware): $(t firmware_line_seabios)"
         fi
         if (( CREATE_SERIAL )); then
             serial_line="$(t rev_serial): $(t serial_enabled)"
@@ -640,7 +692,7 @@ step_confirm() {
         fi
         choice=$(whiptail --backtitle "$BACKTITLE" --title "$(_wt_title "$(t sec_review)")" \
             --cancel-button "$(t btn_back)" \
-            --menu "$(t review_prompt)" 22 78 12 \
+            --menu "$(t review_prompt)" 24 78 14 \
             "create"  "$(t review_create)" \
             "VMID"    "$(t rev_vmid): ${VMID}" \
             "VMNAME"  "$(t rev_vmname): ${VMNAME}" \
@@ -650,6 +702,7 @@ step_confirm() {
             "STORAGE" "$storage_line" \
             "BRIDGE"  "$(t rev_bridge): ${BRIDGE}" \
             "BOOT"    "$(t rev_bootloader): ${IMAGE_NAME} ${IMG_TAG}" \
+            "FIRMWARE" "$firmware_line" \
             "SERIAL"  "$serial_line" \
             3>&1 1>&2 2>&3)
         case $? in 0) ;; 255) return 2 ;; *) return 1 ;; esac
@@ -658,6 +711,10 @@ step_confirm() {
                 if ! [[ "$VMID" =~ ^[0-9]+$ ]]; then
                     wt_msg "$(t err_title)" "$(t err_vmid)"
                     step_core
+                    continue
+                fi
+                if [ "$FIRMWARE_MODE" = "ovmf" ] && [ -z "$EFI_STORAGE" ]; then
+                    step_firmware
                     continue
                 fi
                 if [ "$STORAGE_MODE" = "passthrough" ] && (( ${#PASSTHRU_DISKS[@]} == 0 )); then
@@ -670,6 +727,7 @@ step_confirm() {
             BUS|STORAGE)           step_storage ;;
             BRIDGE)                step_network ;;
             BOOT)                  step_bootloader ;;
+            FIRMWARE)              step_firmware ;;
             SERIAL)                step_serial ;;
         esac
     done
@@ -741,8 +799,16 @@ create_vm() {
         wt_msg "$(t err_title)" "$(t err_vmid)"
         return 1
     fi
+    if [ "$FIRMWARE_MODE" = "ovmf" ] && [ -z "$EFI_STORAGE" ]; then
+        wt_msg "$(t err_title)" "$(t err_efi_storage)"
+        return 1
+    fi
     wt_infobox "$(t sec_review)" "$(tf creating_vm "$VMID")"
-    if ! qm create "$VMID" --name "$VMNAME" --memory "$RAM" --cores "$CORES" --bios seabios --ostype l26; then
+    local create_args=(--name "$VMNAME" --memory "$RAM" --cores "$CORES" --bios "$FIRMWARE_MODE" --ostype l26)
+    if [ "$FIRMWARE_MODE" = "ovmf" ]; then
+        create_args+=(--machine q35)
+    fi
+    if ! qm create "$VMID" "${create_args[@]}"; then
         rollback "$(t vm_create_failed)"; exit 1
     fi
     if [ "$BUS_TYPE_PARAM" == "scsi" ]; then qm set "$VMID" --scsihw virtio-scsi-pci; fi
@@ -758,6 +824,9 @@ create_vm() {
         if ! qm set "$VMID" --"${BUS_TYPE_PARAM}0" "${DATA_STORAGE}:${DISK_SIZE},discard=on,ssd=1"; then
             rollback "$(t disk_attach_failed)"; exit 1
         fi
+    fi
+    if [ "$FIRMWARE_MODE" = "ovmf" ] && ! qm set "$VMID" --efidisk0 "${EFI_STORAGE}:0,efitype=4m"; then
+        rollback "$(t efi_attach_failed)"; exit 1
     fi
     if (( CREATE_SERIAL )) && ! qm set "$VMID" --serial0 socket; then
         rollback "$(t serial_attach_failed)"; exit 1
@@ -792,6 +861,11 @@ print_summary() {
     msg "$(tf sum_bus "$BUS_TYPE_PARAM")" "$G"
     msg "$(tf sum_network "$BRIDGE")" "$G"
     msg "$(tf sum_bootloader "$IMAGE_NAME" "$IMG_TAG" "$IMG_PATH")" "$G"
+    if [ "$FIRMWARE_MODE" = "ovmf" ]; then
+        msg "$(tf sum_firmware "$(tf firmware_line_ovmf "$EFI_STORAGE")")" "$G"
+    else
+        msg "$(tf sum_firmware "$(t firmware_line_seabios)")" "$G"
+    fi
     if (( CREATE_SERIAL )); then
         msg "$(tf sum_serial "$(t serial_enabled)")" "$G"
     else
@@ -821,12 +895,13 @@ main() {
     LANG_CHOICE="en"
     BACKTITLE="$(t backtitle)"
     STORAGE_MODE="virtual"; PASSTHRU_DISKS=()
+    FIRMWARE_MODE="seabios"; EFI_STORAGE=""
     CREATE_SERIAL=1
     trap cleanup EXIT
     trap 'exit 130' INT TERM
     pick_language
 
-    local steps=(step_core step_storage step_network step_bootloader step_serial step_confirm)
+    local steps=(step_core step_storage step_network step_bootloader step_firmware step_serial step_confirm)
     local i=0
     while (( i >= 0 && i < ${#steps[@]} )); do
         CURRENT_STEP=$(( i + 1 ))
