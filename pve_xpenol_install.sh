@@ -8,8 +8,8 @@ Y='\033[0;33m'
 N='\033[0m'
 
 BACKTITLE="Xpenology VM Installer for Proxmox VE"
-STEP_TOTAL=7
-# CURRENT_STEP is set by the main loop (1-based) so wrappers can render "Step N/7".
+STEP_TOTAL=8
+# CURRENT_STEP is set by the main loop (1-based) so wrappers can render "Step N/8".
 CURRENT_STEP=1
 
 # --- i18n ---
@@ -34,6 +34,10 @@ declare -A MSG_en=(
     [err_vmname_empty]="VM Name cannot be empty."
     [err_cores]="Invalid number of cores."
     [err_ram]="Invalid RAM size."
+    [sec_cpu_type]="CPU Type"
+    [cpu_type_prompt]="Select the CPU type for the VM."
+    [cpu_type_host]="Expose host CPU features (recommended for this host)"
+    [cpu_type_kvm64]="Proxmox default CPU model (better portability)"
     [sec_disk]="Data Disk"
     [disk_bus_prompt]="Select the disk bus type for the VM."
     [sec_storage_mode]="Storage Mode"
@@ -81,6 +85,7 @@ declare -A MSG_en=(
     [rev_vmid]="VM ID"
     [rev_vmname]="VM Name"
     [rev_cores]="CPU Cores"
+    [rev_cpu_type]="CPU Type"
     [rev_ram]="RAM"
     [rev_bus]="Disk Bus"
     [rev_storage]="Storage"
@@ -120,6 +125,7 @@ declare -A MSG_en=(
     [sum_vmname]="VM Name: %s"
     [sum_status]="Status: %s"
     [sum_cores]="CPU Cores: %s"
+    [sum_cpu_type]="CPU Type: %s"
     [sum_ram]="RAM: %s MB"
     [sum_bus]="Disk Bus: %s"
     [sum_network]="Network: %s"
@@ -154,6 +160,10 @@ declare -A MSG_ko=(
     [err_vmname_empty]="VM 이름은 비워둘 수 없습니다."
     [err_cores]="잘못된 코어 수입니다."
     [err_ram]="잘못된 RAM 용량입니다."
+    [sec_cpu_type]="CPU 타입"
+    [cpu_type_prompt]="VM에 사용할 CPU 타입을 선택하세요."
+    [cpu_type_host]="호스트 CPU 기능 사용 (이 호스트에 권장)"
+    [cpu_type_kvm64]="Proxmox 기본 CPU 모델 (이식성에 유리)"
     [sec_disk]="데이터 디스크"
     [disk_bus_prompt]="VM의 디스크 버스 유형을 선택하세요."
     [sec_storage_mode]="스토리지 모드"
@@ -201,6 +211,7 @@ declare -A MSG_ko=(
     [rev_vmid]="VM ID"
     [rev_vmname]="VM 이름"
     [rev_cores]="CPU 코어"
+    [rev_cpu_type]="CPU 타입"
     [rev_ram]="RAM"
     [rev_bus]="디스크 버스"
     [rev_storage]="스토리지"
@@ -240,6 +251,7 @@ declare -A MSG_ko=(
     [sum_vmname]="VM 이름: %s"
     [sum_status]="상태: %s"
     [sum_cores]="CPU 코어: %s"
+    [sum_cpu_type]="CPU 타입: %s"
     [sum_ram]="RAM: %s MB"
     [sum_bus]="디스크 버스: %s"
     [sum_network]="네트워크: %s"
@@ -536,6 +548,22 @@ step_core() {
     return 0
 }
 
+step_cpu_type() {
+    local default_choice choice
+    case "$CPU_TYPE" in
+        kvm64) default_choice="kvm64" ;;
+        *)     default_choice="host" ;;
+    esac
+    choice=$(wt_menu "$(t sec_cpu_type)" "$(t cpu_type_prompt)" "$default_choice" \
+        "host"  "$(t cpu_type_host)" \
+        "kvm64" "$(t cpu_type_kvm64)") || return $?
+    case "$choice" in
+        host|kvm64) CPU_TYPE="$choice" ;;
+        *) return 100 ;;
+    esac
+    return 0
+}
+
 step_storage() {
     local choice default_bus
     case "$BUS_TYPE_PARAM" in scsi) default_bus=1 ;; sata) default_bus=2 ;; *) default_bus=1 ;; esac
@@ -697,6 +725,7 @@ step_confirm() {
             "VMID"    "$(t rev_vmid): ${VMID}" \
             "VMNAME"  "$(t rev_vmname): ${VMNAME}" \
             "CORES"   "$(t rev_cores): ${CORES}" \
+            "CPU"     "$(t rev_cpu_type): ${CPU_TYPE}" \
             "RAM"     "$(t rev_ram): ${RAM} MB" \
             "BUS"     "$(t rev_bus): ${BUS_TYPE_PARAM}" \
             "STORAGE" "$storage_line" \
@@ -724,6 +753,7 @@ step_confirm() {
                 return 0
                 ;;
             VMID|VMNAME|CORES|RAM) step_core ;;
+            CPU)                    step_cpu_type ;;
             BUS|STORAGE)           step_storage ;;
             BRIDGE)                step_network ;;
             BOOT)                  step_bootloader ;;
@@ -804,7 +834,7 @@ create_vm() {
         return 1
     fi
     wt_infobox "$(t sec_review)" "$(tf creating_vm "$VMID")"
-    local create_args=(--name "$VMNAME" --memory "$RAM" --cores "$CORES" --bios "$FIRMWARE_MODE" --ostype l26)
+    local create_args=(--name "$VMNAME" --memory "$RAM" --cores "$CORES" --cpu "$CPU_TYPE" --bios "$FIRMWARE_MODE" --ostype l26)
     if [ "$FIRMWARE_MODE" = "ovmf" ]; then
         create_args+=(--machine q35)
     fi
@@ -857,6 +887,7 @@ print_summary() {
     msg "$(tf sum_vmname "$VMNAME")" "$G"
     msg "$(tf sum_status "$VM_STATUS")" "$G"
     msg "$(tf sum_cores "$CORES")" "$G"
+    msg "$(tf sum_cpu_type "$CPU_TYPE")" "$G"
     msg "$(tf sum_ram "$RAM")" "$G"
     msg "$(tf sum_bus "$BUS_TYPE_PARAM")" "$G"
     msg "$(tf sum_network "$BRIDGE")" "$G"
@@ -895,13 +926,14 @@ main() {
     LANG_CHOICE="en"
     BACKTITLE="$(t backtitle)"
     STORAGE_MODE="virtual"; PASSTHRU_DISKS=()
+    CPU_TYPE="host"
     FIRMWARE_MODE="seabios"; EFI_STORAGE=""
     CREATE_SERIAL=1
     trap cleanup EXIT
     trap 'exit 130' INT TERM
     pick_language
 
-    local steps=(step_core step_storage step_network step_bootloader step_firmware step_serial step_confirm)
+    local steps=(step_core step_cpu_type step_storage step_network step_bootloader step_firmware step_serial step_confirm)
     local i=0
     while (( i >= 0 && i < ${#steps[@]} )); do
         CURRENT_STEP=$(( i + 1 ))
